@@ -111,49 +111,49 @@ describe('schema link examples', () => {
       'https://example.com/?utm_source=meta&utm_medium=paid_social&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_creator_id=CT0042&hark_ad_campaign_id={{campaign.id}}&hark_ad_group_id={{adset.id}}&hark_ad_id={{ad.id}}&hark_ad_site={{site_source_name}}&utm_id={{campaign.id}}',
     );
   });
+});
 
-  it('Retention', () => {
-    expect(build('lifecycle', { utm_campaign: 'us_reengage_food_202610', utm_content: 'reactivation_day30_v1' })).toBe(
-      'https://example.com/?utm_source=hark_lifecycle&utm_medium=email&utm_campaign=us_reengage_food_202610&hark_use_case=food_ordering&utm_content=reactivation_day30_v1',
-    );
-  });
+/** Creator links: the schema keeps the existing platform / creator pair and adds the creator key. */
+describe('creator links', () => {
+  const creator = (extra: Record<string, string>) =>
+    buildLink('creator', 'https://hark.com/', { ...channelDefaults('creator'), utm_campaign: 'us_signup_creators_202610', ...extra });
 
-  it('Influencer link in bio', () => {
-    expect(build('influencer_linkinbio', { utm_source: 'instagram', hark_creator_id: 'CT0042' })).toBe(
-      'https://example.com/?utm_source=instagram&utm_medium=influencer_linkinbio&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_creator_id=CT0042',
-    );
-  });
-
-  it('Paid influencer', () => {
-    const link = buildLink('paid_influencer', 'https://example.com/', {
-      ...channelDefaults('paid_influencer'),
-      ...food,
-      utm_source: 'instagram',
-      hark_creator_id: 'CT0042',
-      utm_content: 'food_demo_reel_v1',
-    });
+  it('platform / creator with the handle and the Hark creator ID', () => {
+    const link = creator({ utm_source: 'TT', utm_content: '@livviazhang', hark_creator_id: 'ct14' });
     expect(link.ok).toBe(true);
-    expect(link.params).toEqual({
-      utm_source: 'instagram',
-      utm_medium: 'paid_influencer',
-      utm_campaign: 'us_signup_food_202610',
-      hark_use_case: 'food_ordering',
-      hark_creator_id: 'CT0042',
-      utm_content: 'food_demo_reel_v1',
-    });
+    expect(link.issues).toEqual([]);
+    expect(link.url).toBe(
+      'https://hark.com/?utm_source=tiktok&utm_medium=creator&utm_campaign=us_signup_creators_202610&utm_content=livviazhang&hark_creator_id=CT0014',
+    );
+  });
+
+  it('flags a non-creator platform and a link tool as the source', () => {
+    expect(creator({ utm_source: 'linktree', hark_creator_id: 'CT0001' }).issues.map((i) => i.message).join()).toMatch(/instagram, tiktok, youtube/);
+  });
+
+  it('builds the proposed influencer and lifecycle rows, with a warning that Hark will flag them', () => {
+    for (const [channel, extra] of [
+      ['influencer_linkinbio', { utm_source: 'instagram', hark_creator_id: 'CT0042' }],
+      ['paid_influencer', { utm_source: 'instagram', hark_creator_id: 'CT0042', utm_content: 'food_demo_reel_v1' }],
+      ['lifecycle', { utm_content: 'reactivation_day30_v1' }],
+    ] as const) {
+      const link = buildLink(channel, 'https://hark.com/', { ...channelDefaults(channel), utm_campaign: 'us_signup_food_202610', ...extra });
+      expect(link.ok).toBe(true);
+      expect(link.issues.map((i) => i.message).join()).toMatch(/isn’t in the Hark schema yet/);
+    }
   });
 });
 
 describe('checks', () => {
   it('flags missing creator IDs, bad IDs, off-schema sources and campaign names', () => {
-    const link = buildLink('influencer_linkinbio', 'https://hark.com', { utm_source: 'linktree', utm_medium: 'influencer_linkinbio', utm_campaign: 'creators' });
+    const link = buildLink('creator', 'https://hark.com', { utm_source: 'linktree', utm_medium: 'creator', utm_campaign: 'creators' });
     const messages = link.issues.map((i) => i.message).join(' | ');
     expect(link.ok).toBe(false);
     expect(messages).toMatch(/Creator ID is required/);
     expect(messages).toMatch(/instagram, tiktok, youtube/);
     expect(messages).toMatch(/\{market\}_\{objective\}/);
 
-    const bad = buildLink('influencer_linkinbio', 'https://hark.com', { utm_source: 'instagram', utm_medium: 'influencer_linkinbio', utm_campaign: 'us_signup_creators_202610', hark_creator_id: 'olivia' });
+    const bad = buildLink('creator', 'https://hark.com', { utm_source: 'instagram', utm_medium: 'creator', utm_campaign: 'us_signup_creators_202610', hark_creator_id: 'olivia' });
     expect(bad.issues.map((i) => i.message).join()).toMatch(/CT0042/);
   });
 

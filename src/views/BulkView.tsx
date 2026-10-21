@@ -33,10 +33,10 @@ export const newBulkState = (): BulkState => ({
   text: '',
   fileName: null,
   dump: EMPTY_DUMP,
-  channel: 'influencer_linkinbio',
+  channel: 'creator',
   destination: APP.destinations[0]?.url ?? '',
   batchName: null,
-  templates: templatesFor('influencer_linkinbio', EMPTY_DUMP),
+  templates: templatesFor('creator', EMPTY_DUMP),
 });
 
 const CREATOR_CHANNELS = CHANNELS.filter(isCreatorChannel);
@@ -148,7 +148,7 @@ export function BulkView({
   const loadDump = (next: ParsedDump, extra: Partial<BulkState>) => {
     setResult(null);
     setState((prev) => {
-      const channelId = next.kind === 'roster' && !isCreatorChannel(channelOf(prev.channel)) ? 'influencer_linkinbio' : prev.channel;
+      const channelId = next.kind === 'roster' && !isCreatorChannel(channelOf(prev.channel)) ? 'creator' : prev.channel;
       return {
         ...prev,
         ...extra,
@@ -431,7 +431,7 @@ export function BulkView({
                     aria-pressed={state.channel === c.id}
                     onClick={() => setState((prev) => ({ ...prev, channel: c.id, templates: templatesFor(c.id, prev.dump) }))}
                   >
-                    {c.label.replace('Influencer ', '').replace(/^./, (m) => m.toUpperCase())}
+                    {c.shortLabel ?? c.label}
                   </button>
                 ))}
               </div>

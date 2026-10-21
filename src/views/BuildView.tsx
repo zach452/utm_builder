@@ -18,7 +18,7 @@ export interface BuildDraft {
   notes: string;
 }
 
-export const newDraft = (channel = 'influencer_linkinbio', destination = APP.destinations[0]?.url ?? ''): BuildDraft => ({
+export const newDraft = (channel = 'creator', destination = APP.destinations[0]?.url ?? ''): BuildDraft => ({
   channel,
   destination,
   params: { ...channelOf(channel).defaults },

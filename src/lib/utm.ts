@@ -221,7 +221,7 @@ export function buildLink(channelId: string, destination: string, raw: Params): 
   if (channel.unlisted && channel.id !== 'other') {
     issues.push({
       severity: 'warning',
-      message: `${channel.label} isn’t in the Hark schema yet. Hark keeps the link but flags the source as unmapped, so agree the values with Media first.`,
+      message: `${channel.label.replace(/ \(proposed\)$/, '')} isn’t in the Hark schema yet. Hark keeps the link but flags its source / medium as unmapped, so agree it with Hark before using it.`,
     });
   }
 

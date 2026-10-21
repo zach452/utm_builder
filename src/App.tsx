@@ -71,7 +71,7 @@ export function App() {
       setDraft({ channel: link.channel, destination: link.baseUrl, params: { ...link.params }, label: '', notes: '' });
     } else {
       // Built before the schema: start from today's channel and keep only the values that carry over.
-      const channel = link.channel === 'creator' ? 'influencer_linkinbio' : link.channel in CHANNEL_BY_ID ? link.channel : 'other';
+      const channel = link.channel in CHANNEL_BY_ID ? link.channel : 'other';
       const next = newDraft(channel, link.baseUrl);
       for (const k of ['utm_source', 'utm_content'] as const) {
         const v = link.params[k];

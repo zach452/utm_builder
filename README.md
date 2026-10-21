@@ -1,14 +1,14 @@
 # Hark · UTM Builder
 
 One place for every team to build tracking links that follow the **Hark x Darkroom UTM schema
-(v1.6, 1 October 2026)**, plus a shared library of every link anyone has made and a registry of
+(v1.6, 1 October 2026, the version shared with Hark)**, plus a shared library of every link anyone has made and a registry of
 Hark creator IDs. It's a Vite + React app with two Vercel Functions and Postgres. It deploys to
 Vercel straight from this repo.
 
 | Tab | What it's for |
 | --- | --- |
 | **Single link** | One link at a time. Pick a channel, and its source / medium pair plus the platform's ID macros fill themselves in. Every field suggests values the team has already used. |
-| **Bulk / creator list** | Paste a creator list from Slack, rows from Google Sheets, or upload a CSV or Excel file. Each line or row becomes a link. Pick the link type (link in bio, paid post, DM), review, then save, copy for Slack or Sheets, or download a CSV. |
+| **Bulk / creator list** | Paste a creator list from Slack, rows from Google Sheets, or upload a CSV or Excel file. Each line or row becomes a link. Review, then save, copy for Slack or Sheets, or download a CSV. |
 | **Library** | Every saved link, newest first, grouped into batches. Search by creator, handle, CT ID, campaign or URL. **Reuse** opens a link in the builder. Links built before the schema are flagged as **Old format** and can be archived together. |
 | **Creators** | The creator registry: one Hark creator ID (`CT0042`) per creator account, with its handle on each platform. IDs are assigned the first time a creator gets a link. Import Hark's own IDs from CSV, edit, download. |
 | **Conventions** | The schema's rules, every parameter and every channel, generated from the config. |
@@ -17,26 +17,32 @@ Vercel straight from this repo.
 
 1. **Bulk / creator list** → paste the list exactly as it's written, e.g.
    `* Olivia Zhang (IG @oliviazhangofficial, TT @livviazhang) – TikTok and IG – link in bio`.
-2. Pick the **link type**: link in bio, paid post or DM. Check the campaign name.
+2. Leave the link type on **Creator** and check the campaign name.
 3. Fix anything flagged, then **Save**. New creators are registered with the next CT number, and
    existing creators keep theirs. **Copy for Slack** gives a reply grouped by creator.
 
-Each link is one creator on one platform:
+Each link is one creator on one platform, using the schema's `platform / creator` pair:
 
 ```
-https://hark.com/?utm_source=tiktok&utm_medium=influencer_linkinbio&utm_campaign=us_signup_creators_202610&utm_content=livviazhang&hark_creator_id=CT0014
+https://hark.com/?utm_source=tiktok&utm_medium=creator&utm_campaign=us_signup_creators_202610&utm_content=livviazhang&hark_creator_id=CT0014
 ```
 
-| | Link in bio | Paid influencer post | Direct message |
-| --- | --- | --- | --- |
-| `utm_source` | platform the bio is on | platform the post runs on | platform of the organic post |
-| `utm_medium` | `influencer_linkinbio` | `paid_influencer` | `influencer_directmessage` |
-| `utm_content` | handle on that platform | handle + deliverable, e.g. `handle_food_demo_reel_v1` | handle |
-| `hark_creator_id` | required | required | required |
+| Parameter | Value |
+| --- | --- |
+| `utm_source` | the platform the link is on: `instagram`, `tiktok`, `youtube` (never the link-in-bio tool) |
+| `utm_medium` | `creator` |
+| `utm_content` | the creator's handle on that platform |
+| `hark_creator_id` | the creator's Hark key, `CT` + 4 digits, the same on every platform |
 
 Handles go in `utm_content` because not every creator has a first and last name, and some
 accounts are run by two people. The `hark_creator_id` ties a creator's links together across
-platforms and link types, including paid amplification (Meta / TikTok Ads channels).
+platforms, including paid amplification. A creator post boosted through a Hark ad account uses the
+Meta or TikTok Ads channel (`meta / paid_social`) with the same creator ID.
+
+The `influencer_linkinbio`, `paid_influencer` and `influencer_directmessage` mediums from
+Darkroom's internal draft aren't in the schema shared with Hark. They're in the tool, marked
+**(proposed)**, with a warning that Hark will flag them as unmapped. Once they're added to the
+schema, remove `unlisted: true` from them in `src/config/channels.ts`.
 
 Strikethrough lines are left out, including a rich-text paste from Slack, Notion or Docs. A
 missing handle is flagged. Rows that match a registered creator by handle (or by name when no
@@ -66,8 +72,9 @@ Everything lives in `src/config/`:
 | `app.ts` | change the default destination, the creator campaign name, the teams or the use-case suggestions |
 
 Push the change and Vercel redeploys in about a minute. The **Conventions** tab updates itself.
-Snapchat, Pinterest and Microsoft Ads aren't in the schema yet. The builder warns when they're
-used, because Hark's backend keeps those links but flags the source as unmapped.
+Snapchat, Pinterest, Microsoft Ads, the lifecycle row and the proposed influencer mediums aren't
+in the schema yet. The builder warns when they're used, because Hark's backend keeps those links
+but flags them as unmapped.
 
 ## Deploying on Vercel
 

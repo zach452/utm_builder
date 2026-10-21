@@ -7,7 +7,8 @@ const RULES: [string, string][] = [
   ['Pick the channel first.', 'It sets the source / medium pair from the schema’s Source & Medium sheet, so a channel always reports in one place.'],
   ['Lowercase a–z, 0–9 and underscores only.', 'Spaces, hyphens, dots and @ become underscores, and repeats collapse. The builder does this for you: “US-Signup Food.202610” → us_signup_food_202610.'],
   ['Campaigns are {market}_{objective}_{theme}_{yyyymm}.', 'e.g. us_signup_food_202610. Objectives: awareness, signup, app_install, activation, reengage. Never rename a campaign after launch.'],
-  ['Every creator link carries a Hark creator ID.', 'CT + 4 digits, one per creator account, the same on every platform and link type. The Creators tab assigns and remembers them; Content carries the readable handle.'],
+  ['Creator links are platform / creator, with a Hark creator ID.', 'Source is the platform (instagram, tiktok, youtube), medium is creator, Content is the handle and hark_creator_id is CT + 4 digits: one per creator account, the same on every platform. The Creators tab assigns and remembers them.'],
+  ['Creator posts boosted through a Hark ad account are paid social.', 'Use the Meta or TikTok Ads channel (meta / paid_social) and keep the creator ID.'],
   ['Source is who sent the traffic.', 'The buying platform for paid (meta, google, tiktok), the social platform for creators (instagram, tiktok, youtube), never a link tool like Linktree.'],
   ['Paid links carry the platform’s IDs, not names.', 'The hark_ad_* fields hold the platform macros; utm_campaign stays readable. IDs are kept exactly, including case and leading zeros.'],
   ['Never put REPLACE_ placeholders live.', 'Where a platform has no verified macro, paste the real ID or leave the field out and note the reporting gap.'],
@@ -18,7 +19,7 @@ const RULES: [string, string][] = [
 export function GuideView() {
   return (
     <div className="stack">
-      <Card title="House rules" subtitle="From the Hark x Darkroom UTM schema v1.6 (Engineering handoff, 1 October 2026).">
+      <Card title="House rules" subtitle="From the Hark x Darkroom UTM schema v1.6 (Engineering handoff, 1 October 2026), the version shared with Hark.">
         <ol className="rules">
           {RULES.map(([rule, why]) => (
             <li key={rule}>

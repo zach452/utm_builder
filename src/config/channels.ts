@@ -2,7 +2,7 @@ import type { ParamKey, Params } from './params';
 
 /**
  * The channel taxonomy, following the "Source & Medium" and "Link Examples" sheets of the
- * Hark x Darkroom UTM schema (v1.6). Picking a channel sets the source/medium pair and, for ad
+ * Hark x Darkroom UTM schema (v1.6, the EXT version shared with Hark). Picking a channel sets the source/medium pair and, for ad
  * platforms, drops the platform's ID macros into the hark_ad_* fields so one parameter string
  * works for every ad. To add or change a channel, edit this file and push; Vercel redeploys.
  *
@@ -16,6 +16,8 @@ export const CHANNEL_GROUPS: ChannelGroup[] = ['Creators', 'Paid social', 'Paid 
 export interface Channel {
   id: string;
   label: string;
+  /** For tight spaces, e.g. the link-type switch in Bulk. */
+  shortLabel?: string;
   group: ChannelGroup;
   description: string;
   /** Params shown up front for this channel, in order. The rest sit under "More fields". */
@@ -37,7 +39,7 @@ export interface Channel {
   paramsField?: string;
   /** Bulk mode: templates that read pasted columns, written as [column]. `label` names each link. */
   bulk?: Params & { label?: string };
-  /** Not in the schema yet: Hark's backend keeps the link but flags the source as unmapped. */
+  /** Not in the schema yet: Hark's backend keeps the link but flags the source / medium as unmapped. */
   unlisted?: boolean;
   notes?: string[];
 }
@@ -75,61 +77,68 @@ const PLACEHOLDER_NOTE = 'No verified macros: paste the real campaign / ad group
 export const CHANNELS: Channel[] = [
   // ---------- Creators ----------
   {
-    id: 'influencer_linkinbio',
-    label: 'Influencer link in bio',
+    id: 'creator',
+    label: 'Creator',
+    shortLabel: 'Creator',
     group: 'Creators',
-    description: 'Links in a creator’s bio or link-in-bio page. One link per creator per platform.',
+    description: 'A creator sharing a Hark link from their own account: link in bio, post, story or DM. One link per creator per platform.',
+    fields: CREATOR_FIELDS,
+    defaults: { utm_medium: 'creator' },
+    sources: CREATOR_PLATFORMS,
+    options: { utm_source: CREATOR_PLATFORMS },
+    required: ['hark_creator_id'],
+    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
+    notes: [
+      'Source is the platform the link is on, not the link tool (Linktree, Beacons…).',
+      'Content is the creator’s handle on that platform. Creator ID is their Hark key, shared across platforms.',
+      'Need to tell a bio link from a post or DM for the same creator? Add it after the handle, e.g. handle_story.',
+      'Boosted or whitelisted through a Hark ad account? Use the Meta or TikTok Ads channel and keep the creator ID.',
+      'Link-in-bio tools can strip or rewrite parameters. Click the live link and check the tags arrive before the creator posts.',
+    ],
+  },
+  // Proposed in Darkroom's internal draft of the schema, but not in the version shared with Hark.
+  {
+    id: 'influencer_linkinbio',
+    label: 'Influencer link in bio (proposed)',
+    shortLabel: 'Link in bio (proposed)',
+    group: 'Creators',
+    description: 'Links in a creator’s bio or link-in-bio page. Proposed medium, not in the Hark schema yet.',
     fields: CREATOR_FIELDS,
     defaults: { utm_medium: 'influencer_linkinbio' },
     sources: CREATOR_PLATFORMS,
     options: { utm_source: CREATOR_PLATFORMS },
     required: ['hark_creator_id'],
     bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
-    notes: [
-      'Source is the platform the bio sits on, not the link tool (Linktree, Beacons…).',
-      'Content is the creator’s handle on that platform. Creator ID is their Hark key, shared across platforms.',
-      'Link-in-bio tools can strip or rewrite parameters. Click the live link and check the tags arrive before the creator posts.',
-    ],
+    unlisted: true,
   },
   {
     id: 'paid_influencer',
-    label: 'Paid influencer post',
+    label: 'Paid influencer post (proposed)',
+    shortLabel: 'Paid post (proposed)',
     group: 'Creators',
-    description: 'Paid creator posts published on the creator’s own account. One link per post or deliverable.',
+    description: 'Paid posts on the creator’s own account, one link per deliverable. Proposed medium, not in the Hark schema yet.',
     fields: CREATOR_FIELDS,
     defaults: { utm_medium: 'paid_influencer' },
     sources: CREATOR_PLATFORMS,
     options: { utm_source: CREATOR_PLATFORMS },
     required: ['hark_creator_id', 'utm_content'],
     bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
-    notes: [
-      'Content is the post or deliverable label, e.g. food_demo_reel_v1. In bulk, add it after the handle: [handle]_food_demo_reel_v1.',
-      'Boosted or whitelisted through a Hark ad account? Use the Meta or TikTok Ads channel instead and keep the creator ID.',
-    ],
+    unlisted: true,
+    notes: ['Content is the post or deliverable label. In bulk, add it after the handle: [handle]_food_demo_reel_v1.'],
   },
   {
     id: 'influencer_directmessage',
-    label: 'Influencer direct message',
+    label: 'Influencer direct message (proposed)',
+    shortLabel: 'DM (proposed)',
     group: 'Creators',
-    description: 'Links a creator sends in direct messages.',
+    description: 'Links a creator sends in direct messages. Proposed medium, not in the Hark schema yet.',
     fields: CREATOR_FIELDS,
     defaults: { utm_medium: 'influencer_directmessage' },
     sources: CREATOR_PLATFORMS,
     options: { utm_source: CREATOR_PLATFORMS },
     required: ['hark_creator_id'],
     bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
-    notes: ['Source is the platform where the creator’s organic post is published.'],
-  },
-  {
-    id: 'creator',
-    label: 'Creator (other organic)',
-    group: 'Creators',
-    description: 'Any other unpaid creator journey. Prefer the three rows above when they fit.',
-    fields: CREATOR_FIELDS,
-    defaults: { utm_medium: 'creator' },
-    options: { utm_source: SOCIAL_PLATFORMS },
-    required: ['hark_creator_id'],
-    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
+    unlisted: true,
   },
 
   // ---------- Paid social ----------
@@ -363,13 +372,14 @@ export const CHANNELS: Channel[] = [
   // ---------- Owned & organic ----------
   {
     id: 'lifecycle',
-    label: 'Lifecycle (email, SMS, push)',
+    label: 'Lifecycle (email, SMS, push) (proposed)',
     group: 'Owned & organic',
     description: 'Onboarding, reactivation and product-update sends to existing users.',
     fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content'],
     defaults: { utm_source: 'hark_lifecycle', utm_medium: 'email' },
     sources: ['hark_lifecycle'],
     mediums: ['email', 'sms', 'push'],
+    unlisted: true,
     options: { utm_medium: ['email', 'sms', 'push'] },
     required: ['utm_content'],
     notes: ['Medium is the send format. Content is the flow or message name, e.g. reactivation_day30_v1.'],
