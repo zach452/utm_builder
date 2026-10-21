@@ -970,3 +970,67 @@ ol.rules {
     display: none;
   }
 }
+
+.campaign-helper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.campaign-helper select,
+.campaign-helper input {
+  border: 1px solid var(--hairline-strong);
+  background: var(--page);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12.5px;
+  min-width: 0;
+}
+
+.campaign-helper input[aria-label='Theme'] {
+  flex: 1 1 120px;
+}
+
+.link-type {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.field-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.col-creator {
+  white-space: nowrap;
+  padding-top: 9px !important;
+}
+
+.warn-text {
+  color: var(--warn);
+}
+
+.legacy-row td {
+  opacity: 0.7;
+}
+
+.creator-form {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--page);
+}
+
+.wide-search {
+  width: 100%;
+  border: 1px solid var(--hairline-strong);
+  background: var(--page);
+  border-radius: 8px;
+  padding: 8px 10px;
+}

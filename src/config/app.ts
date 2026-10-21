@@ -17,6 +17,14 @@ export const APP = {
     'Growth',
     'Other',
   ],
-  /** Suggestions for utm_usecase. Replace with Hark's own list as it settles. */
-  useCases: ['inbox', 'calendar', 'research', 'shopping', 'travel', 'trackers', 'web_tasks'],
+  /** Suggestions for hark_use_case. Product owns this list; these are the schema's examples. */
+  useCases: ['food_ordering', 'travel_planning', 'scheduling'],
+  /**
+   * Starting campaign name for creator batches: {market}_{objective}_{theme}_{yyyymm}.
+   * Confirm with Media; once links go live the name must not change.
+   */
+  creatorCampaign: (yyyymm: string) => `us_signup_creators_${yyyymm}`,
 };
+
+/** "202610" for October 2026. */
+export const currentYyyymm = (d = new Date()): string => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;

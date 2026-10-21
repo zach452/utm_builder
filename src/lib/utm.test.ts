@@ -1,50 +1,60 @@
 import { describe, expect, it } from 'vitest';
-import { buildLink, joinUrl, normalizeParam, normalizeValue, parseDestination, splitTaggedUrl } from './utm';
+import { channelOf } from '../config/channels';
+import { buildLink, joinUrl, normalizeParam, parseDestination, slugify, splitTaggedUrl } from './utm';
 
-describe('normalizeValue', () => {
-  it('lowercases and underscores', () => {
-    expect(normalizeValue('  Back to School Q4 ')).toBe('back_to_school_q4');
-    expect(normalizeValue('Mia & Lexie')).toBe('mia_and_lexie');
-    expect(normalizeValue('@ItsNazsare')).toBe('itsnazsare');
-    expect(normalizeValue('Café Launch!')).toBe('cafe_launch');
-    expect(normalizeValue('Q4 - Promo')).toBe('q4-promo');
+describe('schema value rules', () => {
+  it('normalizes campaign names exactly as the schema describes', () => {
+    expect(slugify('US-Signup Food.202610')).toBe('us_signup_food_202610');
+    expect(slugify('  us--signup__food  ')).toBe('us_signup_food');
+    expect(slugify('Mia & Lexie')).toBe('mia_and_lexie');
+    expect(slugify('Café Launch!')).toBe('cafe_launch');
   });
 
-  it('keeps handles with dots and double underscores intact', () => {
-    expect(normalizeValue('lillian__chiu')).toBe('lillian__chiu');
-    expect(normalizeValue('smart.nonsense')).toBe('smart.nonsense');
-    expect(normalizeValue('abhijayarora_')).toBe('abhijayarora');
-  });
-
-  it('leaves platform macros untouched', () => {
-    expect(normalizeValue('{{campaign.name}}')).toBe('{{campaign.name}}');
-    expect(normalizeValue('{{adSet.name}}')).toBe('{{adSet.name}}');
-    expect(normalizeValue('__CID_NAME__')).toBe('__CID_NAME__');
-    expect(normalizeValue('{keyword}')).toBe('{keyword}');
-    expect(normalizeValue('{CampaignId}')).toBe('{CampaignId}');
-    expect(normalizeValue('Prospecting_{{adset.id}}')).toBe('prospecting_{{adset.id}}');
+  it('turns handles into a-z, 0-9 and underscore', () => {
+    expect(normalizeParam('utm_content', '@khani.trendy')).toBe('khani_trendy');
+    expect(normalizeParam('utm_content', 'lillian__chiu')).toBe('lillian_chiu');
+    expect(normalizeParam('utm_content', 'abhijayarora_')).toBe('abhijayarora');
+    expect(normalizeParam('utm_content', 'ux_deniza')).toBe('ux_deniza');
   });
 
   it('maps source aliases to one canonical name', () => {
     expect(normalizeParam('utm_source', 'IG')).toBe('instagram');
     expect(normalizeParam('utm_source', 'Tik Tok')).toBe('tiktok');
-    expect(normalizeParam('utm_source', 'TT')).toBe('tiktok');
     expect(normalizeParam('utm_source', 'Twitter')).toBe('x');
     expect(normalizeParam('utm_content', 'IG')).toBe('ig');
+  });
+
+  it('pads Hark keys and keeps platform IDs exactly', () => {
+    expect(normalizeParam('hark_creator_id', 'ct42')).toBe('CT0042');
+    expect(normalizeParam('hark_creator_id', 'CT 12345')).toBe('CT12345');
+    expect(normalizeParam('hark_ad_id', '000123')).toBe('000123');
+    expect(normalizeParam('hark_ad_campaign_id', '123456789012345678')).toBe('123456789012345678');
+    expect(normalizeParam('hark_referral_code', ' ZachX2026 ')).toBe('ZachX2026');
+  });
+
+  it('keeps the separator next to a macro', () => {
+    expect(normalizeParam('utm_content', 'Prospecting_{{adset.id}}')).toBe('prospecting_{{adset.id}}');
+  });
+
+  it('keeps macros and lowercases search terms', () => {
+    expect(normalizeParam('hark_ad_site', '{{site_source_name}}')).toBe('{{site_source_name}}');
+    expect(normalizeParam('utm_term', 'Food  Delivery Assistant')).toBe('food delivery assistant');
+    expect(normalizeParam('utm_term', '{keyword}')).toBe('{keyword}');
   });
 });
 
 describe('destinations', () => {
-  it('adds https and strips existing UTMs', () => {
-    const d = parseDestination('hark.com/pro?ref=abc&utm_source=old');
+  it('adds https and strips existing tracking params', () => {
+    const d = parseDestination('hark.com/pro?ref=abc&utm_source=old&hark_creator_id=CT0001');
     expect(d.base).toBe('https://hark.com/pro?ref=abc');
-    expect(d.warnings[0]).toMatch(/utm_source/);
+    expect(d.warnings[0]).toMatch(/utm_source, hark_creator_id/);
   });
 
-  it('rejects junk and warns on app store links', () => {
+  it('rejects junk and warns on store links and the example.com placeholder', () => {
     expect(parseDestination('not a url').error).toBeTruthy();
     expect(parseDestination('').error).toBeTruthy();
     expect(parseDestination('https://apps.apple.com/app/id123').warnings.join()).toMatch(/App store/);
+    expect(parseDestination('https://example.com/').warnings.join()).toMatch(/placeholder/);
   });
 
   it('keeps query and fragment in the right places', () => {
@@ -54,49 +64,132 @@ describe('destinations', () => {
   });
 });
 
-describe('buildLink', () => {
-  it('builds a creator link in fixed parameter order', () => {
-    const link = buildLink('creator', 'https://hark.com', {
-      utm_term: 'Link in bio',
-      utm_content: '@livviazhang',
-      utm_campaign: 'creator_always_on',
-      utm_medium: 'creator',
-      utm_source: 'TT',
+/** The schema's own "Link Examples" sheet, reproduced by the builder. */
+describe('schema link examples', () => {
+  const food = { utm_campaign: 'us_signup_food_202610', hark_use_case: 'food_ordering' };
+  const build = (channel: string, extra: Record<string, string>) =>
+    buildLink(channel, 'https://example.com/', { ...channelDefaults(channel), ...food, ...extra }).url;
+
+  it('Meta', () => {
+    expect(build('meta_ads', { utm_content: 'food_demo_v1' })).toBe(
+      'https://example.com/?utm_source=meta&utm_medium=paid_social&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&utm_content=food_demo_v1&hark_ad_campaign_id={{campaign.id}}&hark_ad_group_id={{adset.id}}&hark_ad_id={{ad.id}}&hark_ad_site={{site_source_name}}&utm_id={{campaign.id}}',
+    );
+  });
+
+  it('Google Search', () => {
+    expect(build('google_search', {})).toBe(
+      'https://example.com/?utm_source=google&utm_medium=paid_search&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_ad_campaign_id={campaignid}&hark_ad_group_id={adgroupid}&hark_ad_id={creative}&utm_term={keyword}&hark_ad_site={network}&utm_id={campaignid}',
+    );
+  });
+
+  it('Google mixed inventory (PMax)', () => {
+    expect(build('google_pmax', {})).toBe(
+      'https://example.com/?utm_source=google&utm_medium=cross_network&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_ad_campaign_id={campaignid}&hark_asset_group_id={assetgroupid}&hark_ad_site={network}&utm_id={campaignid}',
+    );
+  });
+
+  it('YouTube', () => {
+    expect(build('youtube_ads', {})).toBe(
+      'https://example.com/?utm_source=google&utm_medium=paid_video&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_ad_campaign_id={campaignid}&hark_ad_group_id={adgroupid}&hark_ad_id={creative}&utm_id={campaignid}',
+    );
+  });
+
+  it('TikTok', () => {
+    expect(build('tiktok_ads', {})).toBe(
+      'https://example.com/?utm_source=tiktok&utm_medium=paid_social&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_ad_campaign_id=__CAMPAIGN_ID__&hark_ad_group_id=__AID__&hark_ad_creative_id=__CID__&hark_ad_site=__PLACEMENT__&utm_id=__CAMPAIGN_ID__',
+    );
+  });
+
+  it('LinkedIn', () => {
+    expect(build('linkedin_ads', {})).toBe(
+      'https://example.com/?utm_source=linkedin&utm_medium=paid_social&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_ad_campaign_id={{CAMPAIGN_GROUP_ID}}&hark_ad_group_id={{CAMPAIGN_ID}}&hark_ad_creative_id={{CREATIVE_ID}}&utm_id={{CAMPAIGN_ID}}',
+    );
+  });
+
+  it('Paid creator amplification', () => {
+    expect(build('meta_ads', { hark_creator_id: 'CT0042' })).toBe(
+      'https://example.com/?utm_source=meta&utm_medium=paid_social&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_creator_id=CT0042&hark_ad_campaign_id={{campaign.id}}&hark_ad_group_id={{adset.id}}&hark_ad_id={{ad.id}}&hark_ad_site={{site_source_name}}&utm_id={{campaign.id}}',
+    );
+  });
+
+  it('Retention', () => {
+    expect(build('lifecycle', { utm_campaign: 'us_reengage_food_202610', utm_content: 'reactivation_day30_v1' })).toBe(
+      'https://example.com/?utm_source=hark_lifecycle&utm_medium=email&utm_campaign=us_reengage_food_202610&hark_use_case=food_ordering&utm_content=reactivation_day30_v1',
+    );
+  });
+
+  it('Influencer link in bio', () => {
+    expect(build('influencer_linkinbio', { utm_source: 'instagram', hark_creator_id: 'CT0042' })).toBe(
+      'https://example.com/?utm_source=instagram&utm_medium=influencer_linkinbio&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_creator_id=CT0042',
+    );
+  });
+
+  it('Paid influencer', () => {
+    const link = buildLink('paid_influencer', 'https://example.com/', {
+      ...channelDefaults('paid_influencer'),
+      ...food,
+      utm_source: 'instagram',
+      hark_creator_id: 'CT0042',
+      utm_content: 'food_demo_reel_v1',
     });
     expect(link.ok).toBe(true);
-    expect(link.url).toBe(
-      'https://hark.com/?utm_source=tiktok&utm_medium=creator&utm_campaign=creator_always_on&utm_content=livviazhang&utm_term=link_in_bio',
-    );
+    expect(link.params).toEqual({
+      utm_source: 'instagram',
+      utm_medium: 'paid_influencer',
+      utm_campaign: 'us_signup_food_202610',
+      hark_use_case: 'food_ordering',
+      hark_creator_id: 'CT0042',
+      utm_content: 'food_demo_reel_v1',
+    });
+  });
+});
+
+describe('checks', () => {
+  it('flags missing creator IDs, bad IDs, off-schema sources and campaign names', () => {
+    const link = buildLink('influencer_linkinbio', 'https://hark.com', { utm_source: 'linktree', utm_medium: 'influencer_linkinbio', utm_campaign: 'creators' });
+    const messages = link.issues.map((i) => i.message).join(' | ');
+    expect(link.ok).toBe(false);
+    expect(messages).toMatch(/Creator ID is required/);
+    expect(messages).toMatch(/instagram, tiktok, youtube/);
+    expect(messages).toMatch(/\{market\}_\{objective\}/);
+
+    const bad = buildLink('influencer_linkinbio', 'https://hark.com', { utm_source: 'instagram', utm_medium: 'influencer_linkinbio', utm_campaign: 'us_signup_creators_202610', hark_creator_id: 'olivia' });
+    expect(bad.issues.map((i) => i.message).join()).toMatch(/CT0042/);
   });
 
-  it('builds a Meta parameter string with macros', () => {
-    const link = buildLink('meta_ads', 'https://hark.com/', {
-      utm_source: 'facebook',
+  it('rejects REPLACE_ placeholders and leftover [column] tokens', () => {
+    const link = buildLink('reddit_ads', 'https://hark.com', {
+      utm_source: 'reddit',
       utm_medium: 'paid_social',
-      utm_campaign: '{{campaign.name}}',
-      utm_adgroup: '{{adset.name}}',
-      utm_ad: '{{ad.name}}',
-      utm_content: '{{ad.id}}',
-      utm_usecase: 'Inbox',
+      utm_campaign: 'us_signup_food_202610',
+      hark_ad_campaign_id: '{REPLACE_CAMPAIGN_ID}',
+      utm_content: '[handle]',
+    });
+    expect(link.ok).toBe(false);
+    expect(link.issues.map((i) => i.message).join()).toMatch(/REPLACE_.*|placeholder/);
+  });
+
+  it('URL-encodes literal IDs and terms but not macros', () => {
+    const link = buildLink('google_search', 'https://hark.com', {
+      utm_source: 'google',
+      utm_medium: 'paid_search',
+      utm_campaign: 'us_signup_food_202610',
+      utm_term: 'food delivery assistant',
+      hark_ad_id: 'A&B',
     });
     expect(link.query).toBe(
-      'utm_source=facebook&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_content={{ad.id}}&utm_adgroup={{adset.name}}&utm_ad={{ad.name}}&utm_usecase=inbox',
+      'utm_source=google&utm_medium=paid_search&utm_campaign=us_signup_food_202610&hark_ad_id=A%26B&utm_term=food%20delivery%20assistant',
     );
-  });
-
-  it('flags missing required fields, off-convention mediums and leftover placeholders', () => {
-    const link = buildLink('creator', 'https://hark.com', { utm_source: 'tiktok', utm_medium: 'social', utm_content: '[handle]' });
-    expect(link.ok).toBe(false);
-    const messages = link.issues.map((i) => i.message).join(' | ');
-    expect(messages).toMatch(/Campaign is required/);
-    expect(messages).toMatch(/normally use medium “creator”/);
-    expect(messages).toMatch(/placeholder/);
   });
 
   it('round-trips through splitTaggedUrl', () => {
-    const link = buildLink('email', 'https://hark.com/pro?ref=nl', { utm_source: 'newsletter', utm_medium: 'email', utm_campaign: 'oct' });
+    const link = buildLink('newsletter', 'https://hark.com/pro?ref=nl', { utm_source: 'hark_newsletter', utm_medium: 'email', utm_campaign: 'us_activation_oct_202610' });
     const back = splitTaggedUrl(link.url);
     expect(back.base).toBe('https://hark.com/pro?ref=nl');
-    expect(back.params).toEqual({ utm_source: 'newsletter', utm_medium: 'email', utm_campaign: 'oct' });
+    expect(back.params).toEqual({ utm_source: 'hark_newsletter', utm_medium: 'email', utm_campaign: 'us_activation_oct_202610' });
   });
 });
+
+function channelDefaults(id: string) {
+  return { ...channelOf(id).defaults } as Record<string, string>;
+}

@@ -1,86 +1,83 @@
 # Hark · UTM Builder
 
-One place for every team to build tracking links with the same naming convention, and a shared
-library of every link anyone has made. It's a Vite + React app with one Vercel Function and a
-Postgres table. It deploys to Vercel straight from this repo.
+One place for every team to build tracking links that follow the **Hark x Darkroom UTM schema
+(v1.6, 1 October 2026)**, plus a shared library of every link anyone has made and a registry of
+Hark creator IDs. It's a Vite + React app with two Vercel Functions and Postgres. It deploys to
+Vercel straight from this repo.
 
 | Tab | What it's for |
 | --- | --- |
-| **Build a link** | One link at a time. Pick a channel, and the medium plus any ad-platform macros fill themselves in. Every field suggests values the team has already used. |
-| **Bulk from a list** | Paste anything: a creator list from Slack, rows from Google Sheets, a CSV or Excel file, or a plain list. Each line or row becomes a link. Review, fix, then save, copy for Slack or Sheets, or download a CSV. |
-| **Library** | Every saved link, newest first, grouped into batches. Search by creator, handle, campaign or URL. **Reuse** opens a link in the builder as a starting point. Archive what's retired. |
-| **Conventions** | The house rules, every parameter and every channel, generated from the config. |
+| **Single link** | One link at a time. Pick a channel, and its source / medium pair plus the platform's ID macros fill themselves in. Every field suggests values the team has already used. |
+| **Bulk / creator list** | Paste a creator list from Slack, rows from Google Sheets, or upload a CSV or Excel file. Each line or row becomes a link. Pick the link type (link in bio, paid post, DM), review, then save, copy for Slack or Sheets, or download a CSV. |
+| **Library** | Every saved link, newest first, grouped into batches. Search by creator, handle, CT ID, campaign or URL. **Reuse** opens a link in the builder. Links built before the schema are flagged as **Old format** and can be archived together. |
+| **Creators** | The creator registry: one Hark creator ID (`CT0042`) per creator account, with its handle on each platform. IDs are assigned the first time a creator gets a link. Import Hark's own IDs from CSV, edit, download. |
+| **Conventions** | The schema's rules, every parameter and every channel, generated from the config. |
 
-## How the team uses it
+## Creator links (how the creator team uses it)
 
-- **Creator team.** Paste the creator list exactly as it's written in Slack, e.g.
-  `* Olivia Zhang (IG @oliviazhangofficial, TT @livviazhang) - TikTok and IG - link in bio`.
-  You get one link per creator per platform, each using that platform's handle. Struck-through
-  lines are left out (this survives a rich-text paste from Slack, Notion or Docs). A missing handle
-  is flagged. **Copy for Slack** gives a reply grouped by creator.
-- **Paid teams.** Pick the platform, copy **URL parameters only**, and paste them into the
-  platform's URL-parameters / Final URL suffix field once per ad account or campaign. The macros
-  (`{{ad.name}}`, `__CID_NAME__`, `{keyword}`…) fill in at click time.
-- **Everyone.** Building a link that already exists shows the saved one and who made it, so the
-  same link is never created twice under different names.
+1. **Bulk / creator list** → paste the list exactly as it's written, e.g.
+   `* Olivia Zhang (IG @oliviazhangofficial, TT @livviazhang) – TikTok and IG – link in bio`.
+2. Pick the **link type**: link in bio, paid post or DM. Check the campaign name.
+3. Fix anything flagged, then **Save**. New creators are registered with the next CT number, and
+   existing creators keep theirs. **Copy for Slack** gives a reply grouped by creator.
 
-The first time someone saves, the app asks for their name and team and remembers it in that
-browser. Every saved link records who made it.
+Each link is one creator on one platform:
+
+```
+https://hark.com/?utm_source=tiktok&utm_medium=influencer_linkinbio&utm_campaign=us_signup_creators_202610&utm_content=livviazhang&hark_creator_id=CT0014
+```
+
+| | Link in bio | Paid influencer post | Direct message |
+| --- | --- | --- | --- |
+| `utm_source` | platform the bio is on | platform the post runs on | platform of the organic post |
+| `utm_medium` | `influencer_linkinbio` | `paid_influencer` | `influencer_directmessage` |
+| `utm_content` | handle on that platform | handle + deliverable, e.g. `handle_food_demo_reel_v1` | handle |
+| `hark_creator_id` | required | required | required |
+
+Handles go in `utm_content` because not every creator has a first and last name, and some
+accounts are run by two people. The `hark_creator_id` ties a creator's links together across
+platforms and link types, including paid amplification (Meta / TikTok Ads channels).
+
+Strikethrough lines are left out, including a rich-text paste from Slack, Notion or Docs. A
+missing handle is flagged. Rows that match a registered creator by handle (or by name when no
+handle is given) reuse that creator's ID.
 
 ## Conventions
 
-- Values are lowercased, with underscores for spaces, and anything that would need URL-encoding is
-  stripped. Platform macros are kept exactly as written.
-- Source aliases are canonicalised (IG → `instagram`, TT → `tiktok`, FB → `facebook`, Twitter → `x`).
+The full rules are on the **Conventions** tab. The key ones:
+
+- Values are lowercase a–z, 0–9 and underscores. Spaces, hyphens, dots and `@` become underscores,
+  and repeats collapse (`US-Signup Food.202610` → `us_signup_food_202610`). Platform IDs, referral
+  codes and macros are kept exactly.
+- Campaigns are `{market}_{objective}_{theme}_{yyyymm}`, e.g. `us_signup_food_202610`, and never
+  change after launch. Both builders have a name helper.
+- Paid channels carry the platform's IDs in `hark_ad_campaign_id`, `hark_ad_group_id`, `hark_ad_id`,
+  `hark_ad_creative_id`, `hark_asset_group_id` and `hark_ad_site`, plus the optional GA4 `utm_id`.
+  The schema's own link examples are reproduced exactly by `src/lib/utm.test.ts`.
 - Parameters always appear in the same order, so the same inputs always produce the same URL.
   That's how duplicates are caught.
-- **Creators:** `utm_source` = platform, `utm_medium=creator`, `utm_campaign=creator_always_on`,
-  `utm_content` = the creator's handle on that platform (no @), `utm_term` = where the link sits
-  (`link_in_bio`, `description`, `comment`…). The library keeps the creator's name with each link.
-- Custom parameters `utm_adgroup`, `utm_ad`, `utm_creative` and `utm_usecase` sit alongside the
-  standard five. GA4 and most attribution tools read them once they're registered as custom
-  dimensions or properties.
 
 Everything lives in `src/config/`:
 
 | File | Change it to… |
 | --- | --- |
-| `channels.ts` | add a channel, change a medium, update an ad platform's macros, or change the creator defaults |
-| `params.ts` | add a UTM parameter (it shows up in every view) |
-| `app.ts` | change the default destination, the teams list or the use-case suggestions |
+| `channels.ts` | add a channel, change a source / medium pair, update an ad platform's macros |
+| `params.ts` | add a parameter or change its format rule (it shows up in every view) |
+| `app.ts` | change the default destination, the creator campaign name, the teams or the use-case suggestions |
 
 Push the change and Vercel redeploys in about a minute. The **Conventions** tab updates itself.
-
-### Ad platform macros
-
-These were checked against each platform's help docs in October 2026:
-
-| Platform | Campaign | Ad group | Ad | Content |
-| --- | --- | --- | --- | --- |
-| Meta | `{{campaign.name}}` | `{{adset.name}}` | `{{ad.name}}` | `{{ad.id}}` |
-| TikTok | `__CAMPAIGN_NAME__` | `__AID_NAME__` | `__CID_NAME__` | `__CID__` |
-| Snapchat | `{{campaign.name}}` | `{{adSet.name}}` | `{{creative.name}}` | `{{ad.id}}` |
-| Pinterest | `{campaign_name}` | `{ad_group_name}` | (none) | `{adid}` |
-| LinkedIn | `{{CAMPAIGN_GROUP_NAME}}` | `{{CAMPAIGN_NAME}}` | (none) | `{{CREATIVE_ID}}` |
-| Google Ads | `{campaignid}` | `{adgroupid}` | `{creative}` | (none). Term is `{keyword}` |
-| Microsoft Ads | `{Campaign}` | `{AdGroup}` | `{AdId}` | (none). Term is `{keyword}` |
-
-Google has no name macros, so its links carry IDs. Reddit only documents macros for catalog ads and
-X documents none, so those channels take typed values. Meta's list matches Meta's documented
-behaviour and every major tool, but Meta's own page listing the macros couldn't be fetched to check it.
+Snapchat, Pinterest and Microsoft Ads aren't in the schema yet. The builder warns when they're
+used, because Hark's backend keeps those links but flags the source as unmapped.
 
 ## Deploying on Vercel
 
-1. In Vercel, go to **Add New → Project** and import this repo. `vercel.json` sets everything, so
-   no settings need to change.
-2. **Turn on the shared library:** in the project, go to **Storage → Create Database → Neon**
-   (Serverless Postgres; the free tier is plenty) and connect it to the project for all
-   environments. That adds `DATABASE_URL`. Redeploy. The table is created on first use.
-   Until then the app still builds, copies and downloads links. It just can't save them, and it
-   says so.
+1. In Vercel, go to **Add New → Project** and import this repo. `vercel.json` sets everything.
+2. **Turn on the shared library and the creator registry:** in the project, go to **Storage →
+   Create Database → Neon** and connect it to the project for all environments. That adds
+   `DATABASE_URL`. Redeploy. The tables are created on first use. Without a database the app still
+   builds and copies links, but it can't save them or assign creator IDs, and it says so.
 3. Optional: set `APP_PASSWORD` to put the whole app, including its API, behind a browser
-   password prompt (any username works). `middleware.ts` handles this. Vercel Deployment Protection
-   works too.
+   password prompt (any username works). Vercel Deployment Protection works too.
 
 > Anyone who can open the URL can read and add to the library. Set `APP_PASSWORD` or turn on
 > Deployment Protection before sharing the link outside the team.
@@ -90,7 +87,7 @@ behaviour and every major tool, but Meta's own page listing the macros couldn't 
 ```bash
 npm install
 npm run dev        # http://localhost:5173. Uses an embedded Postgres in .data/, no setup needed
-npm test           # UTM rules, paste parser (incl. the Oct 2026 creator list), API against Postgres
+npm test           # schema rules + link examples, paste parser, creator matching, both APIs against Postgres
 npm run build      # typecheck + production build
 ```
 
@@ -100,13 +97,15 @@ To develop against the real database, run `vercel env pull` and start with
 ## How it fits together
 
 ```
-src/config/        channels, parameters, teams: the conventions, in one place
-src/lib/utm.ts     normalise values (macros untouched), build + validate a link
-src/lib/dump.ts    paste parser: creator lists, Sheets/CSV/Excel tables, plain lists
-src/lib/template.ts  [column] templates for bulk rows
-src/views/         Build · Bulk · Library · Conventions
-api/links.ts       GET / POST / PATCH / DELETE /api/links → Postgres (utm_links table)
-examples/          the Oct 2026 creator request, and the links it produced (CSV + Slack text)
+src/config/          channels, parameters, teams: the schema, in one place
+src/lib/utm.ts       normalise and check values against the schema, build a link
+src/lib/dump.ts      paste parser: creator lists, Sheets/CSV/Excel tables, plain lists
+src/lib/creators.ts  match pasted creators to the registry before saving
+src/views/           Single · Bulk · Library · Creators · Conventions
+api/links.ts         GET / POST / PATCH / DELETE /api/links    → utm_links table
+api/creators.ts      GET / POST / PATCH /api/creators          → utm_creators table
+api/_db.ts           shared connection and schema (not a function of its own)
+examples/            the 21 Oct 2026 creator request, its links (CSV + Slack text) and creator IDs
 ```
 
 The library's unique key is the full URL. Saving a link that already exists returns the saved

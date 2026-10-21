@@ -1,23 +1,24 @@
-import { CHANNEL_GROUPS, CHANNELS } from '../config/channels';
+import { CHANNEL_GROUPS, CHANNELS, NO_LINK_CHANNELS } from '../config/channels';
 import { PARAM_KEYS, PARAMS } from '../config/params';
 import { Card } from '../components/ui';
 import { hasMacro } from '../lib/utm';
 
 const RULES: [string, string][] = [
-  ['Everything is lowercase, with underscores for spaces.', 'Analytics tools treat “TikTok” and “tiktok” as two sources. The builder converts values for you.'],
-  ['Pick the channel first.', 'It sets the medium, so a channel always reports in one place.'],
-  ['One source name per platform.', 'instagram, not ig or insta. Aliases like IG, TT and FB are converted automatically.'],
-  ['Use the platform macros on ads.', 'One parameter string covers every ad, and the names fill themselves in.'],
-  ['Creators: Content is the handle on that platform, without the @. Term is where the link sits.', 'Handles are unique and match what the creator team already tracks. The library keeps the creator’s name alongside.'],
-  ['Never put UTMs on links between Hark’s own pages.', 'A UTM on an internal link starts a new session and overwrites where the visitor really came from.'],
-  ['App store links drop UTMs.', 'Send people to a web page, or use the store’s own campaign links or the attribution (MMP) link.'],
-  ['Reuse before you rebuild.', 'If a link already exists, the builder shows it, so search the library first.'],
+  ['Pick the channel first.', 'It sets the source / medium pair from the schema’s Source & Medium sheet, so a channel always reports in one place.'],
+  ['Lowercase a–z, 0–9 and underscores only.', 'Spaces, hyphens, dots and @ become underscores, and repeats collapse. The builder does this for you: “US-Signup Food.202610” → us_signup_food_202610.'],
+  ['Campaigns are {market}_{objective}_{theme}_{yyyymm}.', 'e.g. us_signup_food_202610. Objectives: awareness, signup, app_install, activation, reengage. Never rename a campaign after launch.'],
+  ['Every creator link carries a Hark creator ID.', 'CT + 4 digits, one per creator account, the same on every platform and link type. The Creators tab assigns and remembers them; Content carries the readable handle.'],
+  ['Source is who sent the traffic.', 'The buying platform for paid (meta, google, tiktok), the social platform for creators (instagram, tiktok, youtube), never a link tool like Linktree.'],
+  ['Paid links carry the platform’s IDs, not names.', 'The hark_ad_* fields hold the platform macros; utm_campaign stays readable. IDs are kept exactly, including case and leading zeros.'],
+  ['Never put REPLACE_ placeholders live.', 'Where a platform has no verified macro, paste the real ID or leave the field out and note the reporting gap.'],
+  ['Test a real click before launch.', 'Especially link-in-bio tools, which can strip or rewrite parameters, and ad macros, which should arrive as values, not {{…}}.'],
+  ['No tracking parameters on links between Hark’s own pages.', 'They start a new visit and overwrite where the person really came from.'],
 ];
 
 export function GuideView() {
   return (
     <div className="stack">
-      <Card title="House rules">
+      <Card title="House rules" subtitle="From the Hark x Darkroom UTM schema v1.6 (Engineering handoff, 1 October 2026).">
         <ol className="rules">
           {RULES.map(([rule, why]) => (
             <li key={rule}>
@@ -33,6 +34,7 @@ export function GuideView() {
             <thead>
               <tr>
                 <th>Parameter</th>
+                <th>When</th>
                 <th>What goes in it</th>
                 <th>Example</th>
               </tr>
@@ -42,14 +44,12 @@ export function GuideView() {
                 <tr key={k}>
                   <td>
                     <code>{k}</code>
-                    <div className="muted small">
-                      {PARAMS[k].label}
-                      {PARAMS[k].required ? ' · required' : ''}
-                    </div>
+                    <div className="muted small">{PARAMS[k].label}</div>
                   </td>
+                  <td className="small">{PARAMS[k].when}</td>
                   <td>{PARAMS[k].help}</td>
                   <td>
-                    <code>{PARAMS[k].example}</code>
+                    <code className={hasMacro(PARAMS[k].example) ? 'macro' : ''}>{PARAMS[k].example}</code>
                   </td>
                 </tr>
               ))}
@@ -57,8 +57,8 @@ export function GuideView() {
           </table>
         </div>
         <p className="muted small">
-          utm_adgroup, utm_ad, utm_creative and utm_usecase are custom parameters. GA4 and most attribution tools read them once
-          they’re added as custom dimensions or properties.
+          Click IDs (gclid, fbclid, ttclid…) are added by the platforms, never by hand. GA4 doesn’t read hark_* parameters on its own:
+          Hark captures them and registers the ones it reports on as custom dimensions.
         </p>
       </Card>
 
@@ -71,33 +71,35 @@ export function GuideView() {
             <thead>
               <tr>
                 <th>Channel</th>
-                <th>Medium</th>
-                <th>Source</th>
+                <th>Source / medium</th>
                 <th>Pre-filled</th>
               </tr>
             </thead>
             {CHANNEL_GROUPS.map((g) => (
               <tbody key={g}>
                 <tr className="group-row">
-                  <th colSpan={4}>{g}</th>
+                  <th colSpan={3}>{g}</th>
                 </tr>
                 {CHANNELS.filter((c) => c.group === g).map((c) => (
                   <tr key={c.id}>
                     <td>
                       <strong>{c.label}</strong>
+                      {c.unlisted && c.id !== 'other' && <div className="warn-text small">Not in the schema yet</div>}
                       <div className="muted small">{c.description}</div>
                     </td>
                     <td>
-                      <code>{c.defaults.utm_medium ?? 'any'}</code>
-                    </td>
-                    <td>
-                      <code>{c.defaults.utm_source ?? c.options?.utm_source?.slice(0, 3).join(', ') ?? 'you choose'}</code>
+                      <code>
+                        {c.defaults.utm_source ?? c.sources?.join(' | ') ?? c.options?.utm_source?.slice(0, 3).join(' | ') ?? 'you choose'}
+                      </code>{' '}
+                      / <code>{(c.mediums ?? [c.defaults.utm_medium ?? 'any']).join(' | ')}</code>
+                      {c.required?.length ? (
+                        <div className="muted small">Requires {c.required.map((k) => PARAMS[k].label.toLowerCase()).join(', ')}</div>
+                      ) : null}
                     </td>
                     <td className="prefilled">
                       {PARAM_KEYS.filter((k) => k !== 'utm_source' && k !== 'utm_medium' && c.defaults[k]).map((k) => (
                         <div key={k}>
-                          <span className="muted">{PARAMS[k].label}:</span>{' '}
-                          <code className={hasMacro(c.defaults[k]!) ? 'macro' : ''}>{c.defaults[k]}</code>
+                          <span className="muted">{k}</span> <code className={hasMacro(c.defaults[k]!) ? 'macro' : ''}>{c.defaults[k]}</code>
                         </div>
                       ))}
                       {c.paramsField && <div className="muted small">Paste into {c.paramsField}</div>}
@@ -106,6 +108,22 @@ export function GuideView() {
                 ))}
               </tbody>
             ))}
+            <tbody>
+              <tr className="group-row">
+                <th colSpan={3}>No link to build</th>
+              </tr>
+              {NO_LINK_CHANNELS.map((c) => (
+                <tr key={c.label}>
+                  <td>
+                    <strong>{c.label}</strong>
+                  </td>
+                  <td>
+                    <code>{c.pair}</code>
+                  </td>
+                  <td className="muted small">{c.note}</td>
+                </tr>
+              ))}
+            </tbody>
           </table>
         </div>
       </Card>

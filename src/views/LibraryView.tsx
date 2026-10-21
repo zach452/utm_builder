@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { CHANNELS, channelOf } from '../config/channels';
-import { PARAM_KEYS, PARAMS } from '../config/params';
+import { PARAMS, type ParamKey } from '../config/params';
 import { Badge, Card, CopyButton, formatDate, formatDateTime, Notice, UrlText } from '../components/ui';
 import { download, toCsv, toSlack } from '../lib/export';
 import type { LinkRecord } from '../lib/types';
+import { isCurrentFormat } from '../lib/utm';
 import { useLibrary } from '../state/library';
 
 export interface LibraryFilters {
@@ -12,9 +13,11 @@ export interface LibraryFilters {
   team: string;
   batch: string;
   status: 'active' | 'archived';
+  /** Only links built before the Hark schema. */
+  oldOnly: boolean;
 }
 
-export const emptyFilters = (): LibraryFilters => ({ q: '', channel: '', team: '', batch: '', status: 'active' });
+export const emptyFilters = (): LibraryFilters => ({ q: '', channel: '', team: '', batch: '', status: 'active', oldOnly: false });
 
 const PAGE = 100;
 
@@ -45,17 +48,21 @@ export function LibraryView({
     setFilters({ ...filters, ...patch });
   };
 
+  const oldFormat = useMemo(() => new Set(library.links.filter((l) => !isCurrentFormat(l)).map((l) => l.id)), [library.links]);
+  const oldActive = library.links.filter((l) => l.status === 'active' && oldFormat.has(l.id)).length;
+
   const filtered = useMemo(() => {
     const words = filters.q.toLowerCase().split(/\s+/).filter(Boolean);
     return library.links.filter(
       (l) =>
         l.status === filters.status &&
+        (!filters.oldOnly || oldFormat.has(l.id)) &&
         (!filters.channel || l.channel === filters.channel) &&
         (!filters.team || l.team === filters.team) &&
         (!filters.batch || l.batchName === filters.batch) &&
         matches(l, words),
     );
-  }, [library.links, filters]);
+  }, [library.links, filters, oldFormat]);
 
   const batches = useMemo(() => {
     const map = new Map<string, { name: string; count: number; by: string; at: string }>();
@@ -98,11 +105,19 @@ export function LibraryView({
   }
   if (library.storage === 'none') return <SetupNotice />;
 
-  const filtering = filters.q || filters.channel || filters.team || filters.batch;
+  const filtering = filters.q || filters.channel || filters.team || filters.batch || filters.oldOnly;
   const fileName = (filters.batch || 'utm-links').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
 
   return (
     <div className="stack">
+      {oldActive > 0 && !filters.oldOnly && (
+        <Notice tone="warn">
+          {oldActive} active link{oldActive === 1 ? ' was' : 's were'} built before the Hark schema (v1.6) and don’t match it.{' '}
+          <button type="button" className="btn-link" onClick={() => set({ ...emptyFilters(), oldOnly: true })}>
+            Review them
+          </button>
+        </Notice>
+      )}
       {batches.length > 0 && (
         <div className="batches" aria-label="Recent batches">
           {batches.slice(0, 8).map((b) => (
@@ -171,7 +186,7 @@ export function LibraryView({
             </button>
           </div>
           {filtering && (
-            <button type="button" className="btn-link" onClick={() => set({ q: '', channel: '', team: '', batch: '' })}>
+            <button type="button" className="btn-link" onClick={() => set({ q: '', channel: '', team: '', batch: '', oldOnly: false })}>
               Clear filters
             </button>
           )}
@@ -200,16 +215,23 @@ export function LibraryView({
               </thead>
               <tbody>
                 {filtered.slice(0, shown).map((l) => (
-                  <tr key={l.id}>
+                  <tr key={l.id} className={oldFormat.has(l.id) ? 'legacy-row' : undefined}>
                     <td className="col-name">
                       <strong>{l.label || '(untitled)'}</strong>
                       <div className="param-chips">
+                        {oldFormat.has(l.id) && (
+                          <Badge tone="warn" title="Built before the Hark schema v1.6. Rebuild it with Reuse, then archive this one.">
+                            Old format
+                          </Badge>
+                        )}
                         <Badge tone="neutral">{channelOf(l.channel).label}</Badge>
-                        {PARAM_KEYS.filter((k) => l.params[k] && k !== 'utm_medium').map((k) => (
-                          <span key={k} className="kv" title={k}>
-                            <span className="muted">{PARAMS[k].label.toLowerCase()}</span> {l.params[k]}
-                          </span>
-                        ))}
+                        {Object.entries(l.params)
+                          .filter(([k, v]) => v && k !== 'utm_medium' && !/^\{|^__/.test(v))
+                          .map(([k, v]) => (
+                            <span key={k} className="kv" title={k}>
+                              <span className="muted">{(PARAMS[k as ParamKey]?.label ?? k).toLowerCase()}</span> {v}
+                            </span>
+                          ))}
                       </div>
                       {l.notes && <div className="muted small">{l.notes}</div>}
                     </td>
@@ -269,6 +291,22 @@ export function LibraryView({
           <button type="button" className="btn" onClick={() => setShown((n) => n + PAGE * 2)}>
             Show more ({filtered.length - shown} left)
           </button>
+        )}
+        {filters.oldOnly && filters.status === 'active' && filtered.length > 0 && (
+          <div className="row-actions">
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => {
+                if (confirm(`Archive all ${filtered.length} old-format links? Links already posted keep working; they just leave the active library.`)) {
+                  void act(() => library.update(filtered.map((l) => l.id), { status: 'archived' }));
+                }
+              }}
+            >
+              Archive all {filtered.length} old-format links
+            </button>
+          </div>
         )}
         {filters.batch && filters.status === 'active' && filtered.length > 0 && (
           <div className="row-actions">

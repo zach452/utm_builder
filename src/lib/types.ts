@@ -49,3 +49,45 @@ export interface UpdateRequest {
 export interface DeleteRequest {
   ids: string[];
 }
+
+/** A creator account (a person, duo or brand) and its Hark creator ID. */
+export interface CreatorRecord {
+  /** Hark creator ID, e.g. CT0042. Stays the same across platforms and link types. */
+  id: string;
+  name: string;
+  /** Handle per platform, lowercase without the @: { instagram: 'oliviazhangofficial', tiktok: 'livviazhang' }. */
+  handles: Record<string, string>;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NewCreator {
+  name: string;
+  handles: Record<string, string>;
+  /** An ID Hark already issued. Without one, the next free CT number is assigned. */
+  id?: string;
+}
+
+export interface CreatorsResponse {
+  storage: 'database' | 'none';
+  creators: CreatorRecord[];
+}
+
+export interface SaveCreatorsRequest {
+  creators: NewCreator[];
+  createdBy?: string;
+}
+
+export interface SaveCreatorsResponse {
+  /** One per requested creator, in the same order: the matched or newly created record. */
+  creators: CreatorRecord[];
+  /** IDs created by this request. */
+  created: string[];
+}
+
+export interface UpdateCreatorRequest {
+  id: string;
+  patch: Partial<Pick<CreatorRecord, 'name' | 'handles' | 'notes'>> & { id?: string };
+}

@@ -6,13 +6,10 @@
  *   PATCH  /api/links   archive / restore / edit notes
  *   DELETE /api/links   delete for good (the UI only offers this for archived links)
  *
- * Storage is Postgres via DATABASE_URL (set automatically when a Neon database is connected to
- * the Vercel project). Without it, GET reports `storage: 'none'` and the app still builds links
- * but can't save them. The table is created on first use.
- *
- * This file only imports types from src/, so Vercel can deploy it without bundling.
+ * Without a database, GET reports `storage: 'none'` and the app still builds links but can't
+ * save them. Imports from src/ are types only, and ./_db.js is imported with its .js extension so
+ * Node resolves the compiled file on Vercel.
  */
-import { neon } from '@neondatabase/serverless';
 import type {
   DeleteRequest,
   LibraryResponse,
@@ -22,58 +19,12 @@ import type {
   SaveResponse,
   UpdateRequest,
 } from '../src/lib/types';
+import { fail, getQuery, iso, json, NO_DATABASE, newId, parseJson, str, withDb, type Query } from './_db.js';
 
-export type Query = (text: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
-
-declare global {
-  // Local dev and tests swap in an embedded Postgres (PGlite) here.
-  var __utmQuery: Query | undefined;
-}
+export type { Query } from './_db.js';
 
 const MAX_LINKS_PER_SAVE = 1000;
 const MAX_LINKS_LISTED = 20000;
-
-function getQuery(): Query | null {
-  if (globalThis.__utmQuery) return globalThis.__utmQuery;
-  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
-  if (!url) return null;
-  const sql = neon(url);
-  return (text, params) => sql.query(text, params) as Promise<Record<string, unknown>[]>;
-}
-
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS utm_links (
-    id text PRIMARY KEY,
-    seq bigint GENERATED ALWAYS AS IDENTITY,
-    url text NOT NULL UNIQUE,
-    base_url text NOT NULL,
-    params jsonb NOT NULL,
-    channel text NOT NULL,
-    label text NOT NULL DEFAULT '',
-    batch_id text,
-    batch_name text,
-    notes text NOT NULL DEFAULT '',
-    status text NOT NULL DEFAULT 'active',
-    created_by text NOT NULL DEFAULT '',
-    team text NOT NULL DEFAULT '',
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
-  )`,
-  `CREATE INDEX IF NOT EXISTS utm_links_created_at_idx ON utm_links (created_at DESC)`,
-];
-
-const ready = new WeakMap<Query, Promise<void>>();
-function ensureSchema(query: Query): Promise<void> {
-  let p = ready.get(query);
-  if (!p) {
-    p = SCHEMA.reduce<Promise<unknown>>((prev, stmt) => prev.then(() => query(stmt)), Promise.resolve()).then(() => undefined);
-    p.catch(() => ready.delete(query));
-    ready.set(query, p);
-  }
-  return p;
-}
-
-const iso = (v: unknown): string => (v instanceof Date ? v : new Date(String(v))).toISOString();
 
 function toRecord(row: Record<string, unknown>): LinkRecord {
   return {
@@ -81,7 +32,7 @@ function toRecord(row: Record<string, unknown>): LinkRecord {
     seq: Number(row.seq),
     url: String(row.url),
     baseUrl: String(row.base_url),
-    params: (typeof row.params === 'string' ? JSON.parse(row.params) : row.params) as LinkRecord['params'],
+    params: parseJson<LinkRecord['params']>(row.params),
     channel: String(row.channel),
     label: String(row.label ?? ''),
     batchId: (row.batch_id as string | null) ?? null,
@@ -95,18 +46,6 @@ function toRecord(row: Record<string, unknown>): LinkRecord {
   };
 }
 
-const json = (body: unknown, status = 200): Response =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  });
-
-const fail = (status: number, error: string): Response => json({ error }, status);
-
-const newId = (prefix: string): string => `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-
-const str = (v: unknown, max = 2000): string => (typeof v === 'string' ? v.slice(0, max) : '');
-
 function cleanLink(raw: unknown): NewLink | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
@@ -115,7 +54,7 @@ function cleanLink(raw: unknown): NewLink | null {
   const params = r.params && typeof r.params === 'object' && !Array.isArray(r.params) ? r.params : {};
   const cleanParams = Object.fromEntries(
     Object.entries(params as Record<string, unknown>)
-      .filter(([k, v]) => /^utm_[a-z_]+$/.test(k) && typeof v === 'string')
+      .filter(([k, v]) => /^(utm|hark)_[a-z_]+$/.test(k) && typeof v === 'string')
       .map(([k, v]) => [k, (v as string).slice(0, 500)]),
   );
   return {
@@ -211,20 +150,16 @@ async function remove(query: Query, body: DeleteRequest): Promise<Response> {
 export async function handle(request: Request, query: Query | null): Promise<Response> {
   if (!query) {
     if (request.method === 'GET') return json({ storage: 'none', links: [] } satisfies LibraryResponse);
-    return fail(503, 'No database connected. Connect a Postgres database (Neon) to the Vercel project to save links.');
+    return fail(503, NO_DATABASE);
   }
-  try {
-    await ensureSchema(query);
-    if (request.method === 'GET') return await list(query);
+  return withDb(query, async () => {
+    if (request.method === 'GET') return list(query);
     const body = await request.json().catch(() => null);
-    if (request.method === 'POST') return await save(query, body);
-    if (request.method === 'PATCH') return await update(query, body);
-    if (request.method === 'DELETE') return await remove(query, body);
+    if (request.method === 'POST') return save(query, body);
+    if (request.method === 'PATCH') return update(query, body);
+    if (request.method === 'DELETE') return remove(query, body);
     return fail(405, 'Method not allowed.');
-  } catch (err) {
-    console.error(err);
-    return fail(500, err instanceof Error ? err.message : 'Something went wrong.');
-  }
+  });
 }
 
 export const GET = (request: Request) => handle(request, getQuery());

@@ -1,5 +1,8 @@
 import { useId, useState, type ReactNode } from 'react';
+import { currentYyyymm } from '../config/app';
 import { CHANNEL_GROUPS, CHANNELS } from '../config/channels';
+import { CAMPAIGN } from '../config/params';
+import { slugify } from '../lib/utm';
 import type { Issue } from '../lib/utm';
 
 export async function copyText(text: string): Promise<void> {
@@ -82,6 +85,7 @@ export function Field({
   value,
   onChange,
   suggestions,
+  suggestionLabels,
   help,
   hint,
   required,
@@ -96,6 +100,8 @@ export function Field({
   value: string;
   onChange: (v: string) => void;
   suggestions?: string[];
+  /** Shown next to a suggestion in the dropdown, e.g. the creator's name next to CT0042. */
+  suggestionLabels?: Record<string, string>;
   help?: ReactNode;
   hint?: ReactNode;
   required?: boolean;
@@ -128,8 +134,8 @@ export function Field({
       />
       {suggestions && suggestions.length > 0 && (
         <datalist id={listId}>
-          {[...new Set(suggestions)].slice(0, 60).map((s) => (
-            <option key={s} value={s} />
+          {[...new Set(suggestions)].slice(0, 200).map((s) => (
+            <option key={s} value={s} label={suggestionLabels?.[s]} />
           ))}
         </datalist>
       )}
@@ -199,5 +205,49 @@ export function UrlText({ url }: { url: string }) {
         {parts.map((p, i) => (i % 2 === 1 ? <mark key={i}>{p}</mark> : <span key={i}>{p}</span>))}
       </span>
     </span>
+  );
+}
+
+/** Builds a campaign name in the schema's {market}_{objective}_{theme}_{yyyymm} format. */
+export function CampaignHelper({ onUse }: { onUse: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [market, setMarket] = useState('us');
+  const [objective, setObjective] = useState('signup');
+  const [theme, setTheme] = useState('');
+  const [month, setMonth] = useState(currentYyyymm());
+  const name = [market, objective, slugify(theme), month.replace(/\D/g, '')].filter(Boolean).join('_');
+  if (!open) {
+    return (
+      <button type="button" className="btn-link small" onClick={() => setOpen(true)}>
+        Build the name: market_objective_theme_yyyymm
+      </button>
+    );
+  }
+  return (
+    <div className="campaign-helper">
+      <select aria-label="Market" value={market} onChange={(e) => setMarket(e.target.value)}>
+        {CAMPAIGN.markets.map((m) => (
+          <option key={m}>{m}</option>
+        ))}
+      </select>
+      <select aria-label="Objective" value={objective} onChange={(e) => setObjective(e.target.value)}>
+        {CAMPAIGN.objectives.map((o) => (
+          <option key={o}>{o}</option>
+        ))}
+      </select>
+      <input aria-label="Theme" placeholder="theme, e.g. creators" value={theme} onChange={(e) => setTheme(e.target.value)} />
+      <input aria-label="Month (yyyymm)" className="mono" size={7} value={month} onChange={(e) => setMonth(e.target.value)} />
+      <button
+        type="button"
+        className="btn btn-small"
+        disabled={!theme.trim()}
+        onClick={() => {
+          onUse(name);
+          setOpen(false);
+        }}
+      >
+        Use {theme.trim() ? name : ''}
+      </button>
+    </div>
   );
 }

@@ -1,27 +1,17 @@
 import type { ParamKey, Params } from './params';
 
 /**
- * The channel taxonomy: one entry per kind of link the team builds. Picking a channel fills in
- * the medium, suggests sources and, for ad platforms, drops in the platform's dynamic macros so
- * one link works for every ad. To add a channel, add an entry here and push; Vercel redeploys.
+ * The channel taxonomy, following the "Source & Medium" and "Link Examples" sheets of the
+ * Hark x Darkroom UTM schema (v1.6). Picking a channel sets the source/medium pair and, for ad
+ * platforms, drops the platform's ID macros into the hark_ad_* fields so one parameter string
+ * works for every ad. To add or change a channel, edit this file and push; Vercel redeploys.
  *
- * Values in `defaults` may contain platform macros ({{ad.name}}, __CID__, {keyword}). Those are
- * kept exactly as written. Everything else is lowercased and underscored when the link is built.
+ * Macros ({{ad.id}}, __CID__, {campaignid}) are kept exactly as written. Everything else is
+ * cleaned to the schema's format when the link is built.
  */
-export type ChannelGroup =
-  | 'Paid social'
-  | 'Paid search'
-  | 'Paid media'
-  | 'Creators & partners'
-  | 'Owned & organic';
+export type ChannelGroup = 'Creators' | 'Paid social' | 'Paid search' | 'Paid video & programmatic' | 'Owned & organic';
 
-export const CHANNEL_GROUPS: ChannelGroup[] = [
-  'Creators & partners',
-  'Paid social',
-  'Paid search',
-  'Paid media',
-  'Owned & organic',
-];
+export const CHANNEL_GROUPS: ChannelGroup[] = ['Creators', 'Paid social', 'Paid search', 'Paid video & programmatic', 'Owned & organic'];
 
 export interface Channel {
   id: string;
@@ -34,6 +24,10 @@ export interface Channel {
   defaults: Params;
   /** Suggested values for each field, on top of the values the team has already used. */
   options?: Partial<Record<ParamKey, string[]>>;
+  /** Sources the schema allows for this channel. Anything else gets a warning. */
+  sources?: string[];
+  /** Mediums the schema allows. Defaults to the channel's default medium. */
+  mediums?: string[];
   /** Required on top of source, medium and campaign. */
   required?: ParamKey[];
   /**
@@ -41,82 +35,101 @@ export interface Channel {
    * parameters on their own, and this says where to paste them.
    */
   paramsField?: string;
-  /**
-   * Bulk mode: templates that read the pasted columns, written as [column]. `label` names each
-   * link in the library.
-   */
+  /** Bulk mode: templates that read pasted columns, written as [column]. `label` names each link. */
   bulk?: Params & { label?: string };
+  /** Not in the schema yet: Hark's backend keeps the link but flags the source as unmapped. */
+  unlisted?: boolean;
   notes?: string[];
 }
 
-const SOCIAL_PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook', 'x', 'threads', 'linkedin', 'pinterest', 'snapchat', 'reddit'];
+const CREATOR_PLATFORMS = ['instagram', 'tiktok', 'youtube'];
+const SOCIAL_PLATFORMS = ['instagram', 'tiktok', 'youtube', 'x', 'linkedin', 'facebook', 'threads', 'reddit'];
 
-const AD_FIELDS: ParamKey[] = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_adgroup', 'utm_ad', 'utm_content', 'utm_creative', 'utm_usecase'];
-const SEARCH_FIELDS: ParamKey[] = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_adgroup', 'utm_ad', 'utm_term', 'utm_content', 'utm_usecase'];
-const BASIC_FIELDS: ParamKey[] = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_usecase'];
+const CREATOR_FIELDS: ParamKey[] = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'hark_creator_id', 'hark_use_case'];
+const META_IDS: Params = {
+  hark_ad_campaign_id: '{{campaign.id}}',
+  hark_ad_group_id: '{{adset.id}}',
+  hark_ad_id: '{{ad.id}}',
+  hark_ad_site: '{{site_source_name}}',
+  utm_id: '{{campaign.id}}',
+};
+const TIKTOK_IDS: Params = {
+  hark_ad_campaign_id: '__CAMPAIGN_ID__',
+  hark_ad_group_id: '__AID__',
+  hark_ad_creative_id: '__CID__',
+  hark_ad_site: '__PLACEMENT__',
+  utm_id: '__CAMPAIGN_ID__',
+};
+const PAID_FIELDS: ParamKey[] = [
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'hark_use_case',
+  'utm_content',
+  'hark_ad_campaign_id',
+  'hark_ad_group_id',
+  'hark_ad_id',
+];
+const PLACEHOLDER_NOTE = 'No verified macros: paste the real campaign / ad group / ad IDs, or leave them out and note the reporting gap.';
 
 export const CHANNELS: Channel[] = [
-  // ---------- Creators & partners ----------
+  // ---------- Creators ----------
   {
-    id: 'creator',
-    label: 'Creator (organic post)',
-    group: 'Creators & partners',
-    description: 'A creator posting on their own account: link in bio, description, comment, story.',
-    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'utm_creative', 'utm_usecase'],
-    defaults: { utm_medium: 'creator', utm_campaign: 'creator_always_on', utm_term: 'link_in_bio' },
-    options: {
-      utm_source: SOCIAL_PLATFORMS,
-      utm_term: ['link_in_bio', 'description', 'comment', 'pinned_comment', 'story', 'caption'],
-    },
-    required: ['utm_content'],
-    bulk: {
-      label: '[name] · [platform]',
-      utm_source: '[platform]',
-      utm_content: '[handle]',
-      utm_term: '[placement]',
-    },
+    id: 'influencer_linkinbio',
+    label: 'Influencer link in bio',
+    group: 'Creators',
+    description: 'Links in a creator’s bio or link-in-bio page. One link per creator per platform.',
+    fields: CREATOR_FIELDS,
+    defaults: { utm_medium: 'influencer_linkinbio' },
+    sources: CREATOR_PLATFORMS,
+    options: { utm_source: CREATOR_PLATFORMS },
+    required: ['hark_creator_id'],
+    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
     notes: [
-      'Content is the creator handle on the platform the link is posted on, without the @.',
-      'Term is where the link sits, so a bio link and a comment link from the same creator stay separate.',
-      'Paid amplification of creator posts (Spark Ads, Partnership Ads) uses the Meta or TikTok Ads channel, with the handle in Creative.',
+      'Source is the platform the bio sits on, not the link tool (Linktree, Beacons…).',
+      'Content is the creator’s handle on that platform. Creator ID is their Hark key, shared across platforms.',
+      'Link-in-bio tools can strip or rewrite parameters. Click the live link and check the tags arrive before the creator posts.',
     ],
   },
   {
-    id: 'affiliate',
-    label: 'Affiliate',
-    group: 'Creators & partners',
-    description: 'Affiliate networks and commission-based partners.',
-    fields: BASIC_FIELDS,
-    defaults: { utm_medium: 'affiliate' },
-    required: ['utm_content'],
-    notes: ['Source is the network or partner. Content is the publisher or partner ID.'],
+    id: 'paid_influencer',
+    label: 'Paid influencer post',
+    group: 'Creators',
+    description: 'Paid creator posts published on the creator’s own account. One link per post or deliverable.',
+    fields: CREATOR_FIELDS,
+    defaults: { utm_medium: 'paid_influencer' },
+    sources: CREATOR_PLATFORMS,
+    options: { utm_source: CREATOR_PLATFORMS },
+    required: ['hark_creator_id', 'utm_content'],
+    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
+    notes: [
+      'Content is the post or deliverable label, e.g. food_demo_reel_v1. In bulk, add it after the handle: [handle]_food_demo_reel_v1.',
+      'Boosted or whitelisted through a Hark ad account? Use the Meta or TikTok Ads channel instead and keep the creator ID.',
+    ],
   },
   {
-    id: 'partnership',
-    label: 'Partnership & co-marketing',
-    group: 'Creators & partners',
-    description: 'Brand partners, integrations, co-marketing placements.',
-    fields: BASIC_FIELDS,
-    defaults: { utm_medium: 'partnership' },
+    id: 'influencer_directmessage',
+    label: 'Influencer direct message',
+    group: 'Creators',
+    description: 'Links a creator sends in direct messages.',
+    fields: CREATOR_FIELDS,
+    defaults: { utm_medium: 'influencer_directmessage' },
+    sources: CREATOR_PLATFORMS,
+    options: { utm_source: CREATOR_PLATFORMS },
+    required: ['hark_creator_id'],
+    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
+    notes: ['Source is the platform where the creator’s organic post is published.'],
   },
   {
-    id: 'sponsorship',
-    label: 'Sponsorship (newsletter, event)',
-    group: 'Creators & partners',
-    description: 'Paid newsletter placements, event sponsorships and community sponsorships.',
-    fields: BASIC_FIELDS,
-    defaults: { utm_medium: 'sponsorship' },
-    options: { utm_content: ['primary', 'secondary', 'classified', 'dedicated_send'] },
-    notes: ['Source is the newsletter or event name. Content is the placement.'],
-  },
-  {
-    id: 'pr',
-    label: 'PR & press',
-    group: 'Creators & partners',
-    description: 'Press coverage, product round-ups and reviews.',
-    fields: BASIC_FIELDS,
-    defaults: { utm_medium: 'pr' },
-    notes: ['Source is the publication, e.g. the_verge.'],
+    id: 'creator',
+    label: 'Creator (other organic)',
+    group: 'Creators',
+    description: 'Any other unpaid creator journey. Prefer the three rows above when they fit.',
+    fields: CREATOR_FIELDS,
+    defaults: { utm_medium: 'creator' },
+    options: { utm_source: SOCIAL_PLATFORMS },
+    required: ['hark_creator_id'],
+    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
   },
 
   // ---------- Paid social ----------
@@ -124,111 +137,102 @@ export const CHANNELS: Channel[] = [
     id: 'meta_ads',
     label: 'Meta Ads (Facebook & Instagram)',
     group: 'Paid social',
-    description: 'One set of parameters for every Meta ad. Meta fills in the names at click time.',
-    fields: AD_FIELDS,
-    defaults: {
-      utm_source: 'facebook',
-      utm_medium: 'paid_social',
-      utm_campaign: '{{campaign.name}}',
-      utm_adgroup: '{{adset.name}}',
-      utm_ad: '{{ad.name}}',
-      utm_content: '{{ad.id}}',
-    },
-    options: { utm_source: ['facebook', 'instagram', '{{site_source_name}}'] },
+    description: 'Facebook and Instagram paid ads, including paid creator amplification (Partnership Ads).',
+    fields: [...PAID_FIELDS, 'hark_ad_site', 'utm_id', 'hark_creator_id'],
+    defaults: { utm_source: 'meta', utm_medium: 'paid_social', ...META_IDS },
+    sources: ['meta'],
     paramsField: 'Ads Manager → ad → Tracking → URL parameters',
     notes: [
-      'Meta keeps the name an item had when it was first published, so renaming later does not change the value.',
-      "Dynamic parameters don't work on app-install objectives. Those clicks go to the store, not a web page.",
+      'Paid creator amplification stays meta / paid_social. Add the creator ID when known.',
+      'Validate a served click: the ID macros should arrive as numbers, not as {{…}}.',
     ],
   },
   {
     id: 'tiktok_ads',
     label: 'TikTok Ads',
     group: 'Paid social',
-    description: 'One set of parameters for every TikTok ad, including Spark Ads.',
-    fields: AD_FIELDS,
-    defaults: {
-      utm_source: 'tiktok',
-      utm_medium: 'paid_social',
-      utm_campaign: '__CAMPAIGN_NAME__',
-      utm_adgroup: '__AID_NAME__',
-      utm_ad: '__CID_NAME__',
-      utm_content: '__CID__',
-    },
+    description: 'TikTok paid ads, including Spark Ads.',
+    fields: [...PAID_FIELDS.filter((k) => k !== 'hark_ad_id'), 'hark_ad_creative_id', 'hark_ad_site', 'utm_id', 'hark_ad_id', 'hark_creator_id'],
+    defaults: { utm_source: 'tiktok', utm_medium: 'paid_social', ...TIKTOK_IDS },
+    sources: ['tiktok'],
+    options: { hark_ad_id: ['__ADID_V2__'] },
     paramsField: 'TikTok Ads Manager → ad → URL parameters',
-  },
-  {
-    id: 'snapchat_ads',
-    label: 'Snapchat Ads',
-    group: 'Paid social',
-    description: 'Snapchat ads.',
-    fields: AD_FIELDS,
-    defaults: {
-      utm_source: 'snapchat',
-      utm_medium: 'paid_social',
-      utm_campaign: '{{campaign.name}}',
-      utm_adgroup: '{{adSet.name}}',
-      utm_ad: '{{creative.name}}',
-      utm_content: '{{ad.id}}',
-    },
-    paramsField: 'Snapchat Ads Manager → ad → URL parameters',
-    notes: ['Snapchat has no ad-name macro; {{creative.name}} is the closest. Mind the capital S in {{adSet.name}}.'],
-  },
-  {
-    id: 'reddit_ads',
-    label: 'Reddit Ads',
-    group: 'Paid social',
-    description: 'Reddit promoted posts and conversation ads.',
-    fields: AD_FIELDS,
-    defaults: { utm_source: 'reddit', utm_medium: 'paid_social' },
-    notes: ["Reddit's macros are only documented for catalog ads and click trackers, so type the campaign, ad group and ad names in."],
-  },
-  {
-    id: 'pinterest_ads',
-    label: 'Pinterest Ads',
-    group: 'Paid social',
-    description: 'Pinterest promoted pins.',
-    fields: AD_FIELDS,
-    defaults: {
-      utm_source: 'pinterest',
-      utm_medium: 'paid_social',
-      utm_campaign: '{campaign_name}',
-      utm_adgroup: '{ad_group_name}',
-      utm_content: '{adid}',
-    },
-    paramsField: 'Pinterest Ads Manager → ad → Destination URL',
     notes: [
-      'Pinterest has no ad-name macro, so Ad is left for you to type; Content carries the Pin promotion ID.',
-      'Pinterest now adds its own utm_campaign and utm_content unless default UTMs are turned off in the ad account. Turn them off so these values are the ones that land.',
+      '__CID__ is TikTok’s creative ID. On a real click, compare it to the ad ID in the TikTok export and record the join.',
+      'Upgraded Smart+ ads: also set Platform ad ID to __ADID_V2__.',
+      'Spark Ads with a creator: add the creator ID.',
     ],
   },
   {
     id: 'linkedin_ads',
     label: 'LinkedIn Ads',
     group: 'Paid social',
-    description: 'LinkedIn sponsored content and thought-leader ads.',
-    fields: AD_FIELDS,
+    description: 'LinkedIn paid ads.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content', 'hark_ad_campaign_id', 'hark_ad_group_id', 'hark_ad_creative_id', 'utm_id'],
     defaults: {
       utm_source: 'linkedin',
       utm_medium: 'paid_social',
-      utm_campaign: '{{CAMPAIGN_GROUP_NAME}}',
-      utm_adgroup: '{{CAMPAIGN_NAME}}',
-      utm_content: '{{CREATIVE_ID}}',
+      hark_ad_campaign_id: '{{CAMPAIGN_GROUP_ID}}',
+      hark_ad_group_id: '{{CAMPAIGN_ID}}',
+      hark_ad_creative_id: '{{CREATIVE_ID}}',
+      utm_id: '{{CAMPAIGN_ID}}',
     },
+    sources: ['linkedin'],
     paramsField: 'Campaign Manager → campaign → URL parameters',
-    notes: [
-      "LinkedIn's campaign group is the campaign level elsewhere, and its campaign is the ad group level.",
-      'Not supported on Conversation or Message Ads.',
-    ],
+    notes: ['LinkedIn campaign group → Hark campaign; LinkedIn campaign → Hark ad group; creative → creative.'],
+  },
+  {
+    id: 'reddit_ads',
+    label: 'Reddit Ads',
+    group: 'Paid social',
+    description: 'Reddit paid ads.',
+    fields: PAID_FIELDS,
+    defaults: { utm_source: 'reddit', utm_medium: 'paid_social' },
+    sources: ['reddit'],
+    notes: [PLACEHOLDER_NOTE],
   },
   {
     id: 'x_ads',
     label: 'X Ads',
     group: 'Paid social',
-    description: 'Promoted posts on X.',
-    fields: AD_FIELDS,
+    description: 'X paid ads.',
+    fields: PAID_FIELDS,
     defaults: { utm_source: 'x', utm_medium: 'paid_social' },
-    notes: ['X has no documented URL macros, so type the campaign, ad group and ad names in.'],
+    sources: ['x'],
+    notes: [PLACEHOLDER_NOTE],
+  },
+  {
+    id: 'snapchat_ads',
+    label: 'Snapchat Ads',
+    group: 'Paid social',
+    description: 'Snapchat paid ads.',
+    fields: [...PAID_FIELDS, 'hark_ad_site'],
+    defaults: {
+      utm_source: 'snapchat',
+      utm_medium: 'paid_social',
+      hark_ad_campaign_id: '{{campaign.id}}',
+      hark_ad_group_id: '{{adSet.id}}',
+      hark_ad_id: '{{ad.id}}',
+      hark_ad_site: '{{site_source_name}}',
+    },
+    unlisted: true,
+    paramsField: 'Snapchat Ads Manager → ad → URL parameters',
+  },
+  {
+    id: 'pinterest_ads',
+    label: 'Pinterest Ads',
+    group: 'Paid social',
+    description: 'Pinterest paid ads.',
+    fields: PAID_FIELDS,
+    defaults: {
+      utm_source: 'pinterest',
+      utm_medium: 'paid_social',
+      hark_ad_campaign_id: '{campaignid}',
+      hark_ad_group_id: '{adgroupid}',
+      hark_ad_id: '{adid}',
+    },
+    unlisted: true,
+    notes: ['Turn off Pinterest’s automatic default UTMs so they don’t overwrite these.'],
   },
 
   // ---------- Paid search ----------
@@ -236,157 +240,202 @@ export const CHANNELS: Channel[] = [
     id: 'google_search',
     label: 'Google Ads — Search',
     group: 'Paid search',
-    description: 'Search campaigns. Google fills in the IDs and keyword at click time.',
-    fields: SEARCH_FIELDS,
+    description: 'Google search campaigns.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'hark_ad_campaign_id', 'hark_ad_group_id', 'hark_ad_id', 'utm_term', 'hark_ad_site', 'utm_id'],
     defaults: {
       utm_source: 'google',
-      utm_medium: 'cpc',
-      utm_campaign: '{campaignid}',
-      utm_adgroup: '{adgroupid}',
-      utm_ad: '{creative}',
+      utm_medium: 'paid_search',
+      hark_ad_campaign_id: '{campaignid}',
+      hark_ad_group_id: '{adgroupid}',
+      hark_ad_id: '{creative}',
       utm_term: '{keyword}',
+      hark_ad_site: '{network}',
+      utm_id: '{campaignid}',
     },
-    paramsField: 'Google Ads → campaign or account settings → Final URL suffix',
-    notes: [
-      'Google has no macro for campaign or ad group names, so the IDs go in and map back to names in Google Ads. To see a readable name instead, type it into Campaign and set the suffix on that campaign.',
-      'Keep auto-tagging (gclid) on. UTMs sit alongside it.',
-    ],
+    sources: ['google'],
+    paramsField: 'Google Ads → campaign (or lower) → Final URL suffix, without the ?',
+    notes: ['Keep auto-tagging (gclid) on alongside these tags. {creative} is the ad ID; {keyword} is the configured keyword, not search text.'],
+  },
+  {
+    id: 'google_pmax',
+    label: 'Google — Performance Max / mixed',
+    group: 'Paid search',
+    description: 'Performance Max and other genuinely mixed-format Google campaigns.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'hark_ad_campaign_id', 'hark_asset_group_id', 'hark_ad_site', 'utm_id'],
+    defaults: {
+      utm_source: 'google',
+      utm_medium: 'cross_network',
+      hark_ad_campaign_id: '{campaignid}',
+      hark_asset_group_id: '{assetgroupid}',
+      hark_ad_site: '{network}',
+      utm_id: '{campaignid}',
+    },
+    sources: ['google'],
+    paramsField: 'Google Ads → campaign → Final URL suffix, without the ?',
+    notes: ['Asset group is not an ad group: leave the ad group and ad fields empty.'],
   },
   {
     id: 'microsoft_search',
     label: 'Microsoft Ads — Search',
     group: 'Paid search',
     description: 'Bing search campaigns.',
-    fields: SEARCH_FIELDS,
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'hark_ad_campaign_id', 'hark_ad_group_id', 'hark_ad_id', 'utm_term'],
     defaults: {
       utm_source: 'bing',
-      utm_medium: 'cpc',
-      utm_campaign: '{Campaign}',
-      utm_adgroup: '{AdGroup}',
-      utm_ad: '{AdId}',
+      utm_medium: 'paid_search',
+      hark_ad_campaign_id: '{CampaignId}',
+      hark_ad_group_id: '{AdGroupId}',
+      hark_ad_id: '{AdId}',
       utm_term: '{keyword}',
     },
-    paramsField: 'Microsoft Advertising → account, campaign or ad group → Final URL suffix',
+    unlisted: true,
+    paramsField: 'Microsoft Advertising → campaign → Final URL suffix',
   },
 
-  // ---------- Paid media ----------
+  // ---------- Paid video & programmatic ----------
   {
     id: 'youtube_ads',
-    label: 'YouTube Ads',
-    group: 'Paid media',
-    description: 'Video campaigns on YouTube bought through Google Ads.',
-    fields: AD_FIELDS,
-    defaults: {
-      utm_source: 'youtube',
-      utm_medium: 'paid_video',
-      utm_campaign: '{campaignid}',
-      utm_adgroup: '{adgroupid}',
-      utm_ad: '{creative}',
-    },
-    paramsField: 'Google Ads → campaign settings → Final URL suffix',
-  },
-  {
-    id: 'google_display',
-    label: 'Google Ads — Display & Demand Gen',
-    group: 'Paid media',
-    description: 'Display, Demand Gen and Performance Max placements outside search.',
-    fields: AD_FIELDS,
+    label: 'YouTube (Google Ads)',
+    group: 'Paid video & programmatic',
+    description: 'YouTube campaigns bought through Google Ads. Source is google, the buying platform.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'hark_ad_campaign_id', 'hark_ad_group_id', 'hark_ad_id', 'utm_id'],
     defaults: {
       utm_source: 'google',
-      utm_medium: 'display',
-      utm_campaign: '{campaignid}',
-      utm_adgroup: '{adgroupid}',
-      utm_ad: '{creative}',
+      utm_medium: 'paid_video',
+      hark_ad_campaign_id: '{campaignid}',
+      hark_ad_group_id: '{adgroupid}',
+      hark_ad_id: '{creative}',
+      utm_id: '{campaignid}',
     },
-    paramsField: 'Google Ads → campaign settings → Final URL suffix',
+    sources: ['google'],
+    paramsField: 'Google Ads → campaign → Final URL suffix, without the ?',
   },
   {
-    id: 'programmatic',
-    label: 'Programmatic display',
-    group: 'Paid media',
-    description: 'DSP and ad network buys.',
-    fields: AD_FIELDS,
-    defaults: { utm_medium: 'display' },
-    options: { utm_source: ['stackadapt', 'the_trade_desk', 'dv360', 'amazon_dsp'] },
-    notes: ['Source is the DSP or network. Most DSPs have their own macros; paste them into Ad group and Ad.'],
+    id: 'online_video',
+    label: 'Online video (DSP / publisher)',
+    group: 'Paid video & programmatic',
+    description: 'Non-CTV online video bought through a DSP or direct publisher.',
+    fields: PAID_FIELDS,
+    defaults: { utm_medium: 'paid_video' },
+    options: { utm_source: ['dv360', 'the_trade_desk'] },
+    notes: ['Source is the actual buying platform. ' + PLACEHOLDER_NOTE],
   },
   {
     id: 'ctv',
-    label: 'CTV & streaming video',
-    group: 'Paid media',
-    description: 'Connected TV and streaming video buys (usually reached by QR code or vanity URL).',
-    fields: BASIC_FIELDS,
+    label: 'CTV',
+    group: 'Paid video & programmatic',
+    description: 'Dedicated connected-TV campaigns, usually reached by QR code or vanity URL.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'hark_ad_campaign_id', 'hark_ad_creative_id'],
     defaults: { utm_medium: 'ctv' },
+    options: { utm_source: ['dv360', 'the_trade_desk'] },
+    notes: ['A printed or on-screen QR can’t expand macros: put the real campaign and creative IDs in.'],
   },
   {
     id: 'audio',
-    label: 'Podcast & audio',
-    group: 'Paid media',
-    description: 'Host-read podcast ads, streaming audio and radio.',
-    fields: BASIC_FIELDS,
+    label: 'Streaming audio / podcast',
+    group: 'Paid video & programmatic',
+    description: 'Streaming audio or podcast advertising.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content', 'hark_ad_campaign_id'],
     defaults: { utm_medium: 'audio' },
-    options: { utm_content: ['host_read', 'pre_roll', 'mid_roll', 'post_roll', 'show_notes'] },
-    notes: ['Source is the show or network. Content is the ad position.'],
+    notes: ['Source is the show or seller for a direct sponsorship, or the DSP for a DSP buy.'],
+  },
+  {
+    id: 'programmatic_display',
+    label: 'Programmatic — display',
+    group: 'Paid video & programmatic',
+    description: 'Programmatic display buys.',
+    fields: PAID_FIELDS,
+    defaults: { utm_medium: 'display' },
+    options: { utm_source: ['dv360', 'the_trade_desk'] },
+    notes: ['Source is the actual DSP. ' + PLACEHOLDER_NOTE],
+  },
+  {
+    id: 'programmatic_native',
+    label: 'Programmatic — native',
+    group: 'Paid video & programmatic',
+    description: 'Programmatic native buys.',
+    fields: PAID_FIELDS,
+    defaults: { utm_medium: 'native' },
+    options: { utm_source: ['dv360', 'the_trade_desk'] },
+    notes: ['Source is the actual DSP. ' + PLACEHOLDER_NOTE],
   },
 
   // ---------- Owned & organic ----------
   {
+    id: 'lifecycle',
+    label: 'Lifecycle (email, SMS, push)',
+    group: 'Owned & organic',
+    description: 'Onboarding, reactivation and product-update sends to existing users.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content'],
+    defaults: { utm_source: 'hark_lifecycle', utm_medium: 'email' },
+    sources: ['hark_lifecycle'],
+    mediums: ['email', 'sms', 'push'],
+    options: { utm_medium: ['email', 'sms', 'push'] },
+    required: ['utm_content'],
+    notes: ['Medium is the send format. Content is the flow or message name, e.g. reactivation_day30_v1.'],
+  },
+  {
+    id: 'newsletter',
+    label: 'Newsletter',
+    group: 'Owned & organic',
+    description: 'The Hark newsletter.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content'],
+    defaults: { utm_source: 'hark_newsletter', utm_medium: 'email' },
+    sources: ['hark_newsletter'],
+  },
+  {
     id: 'organic_social',
     label: 'Organic social (Hark accounts)',
     group: 'Owned & organic',
-    description: "Posts on Hark's own social accounts, plus community posts (Reddit, Discord).",
-    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'utm_usecase'],
-    defaults: { utm_medium: 'organic_social', utm_term: 'link_in_bio' },
-    options: {
-      utm_source: [...SOCIAL_PLATFORMS, 'discord'],
-      utm_term: ['link_in_bio', 'post', 'story', 'comment', 'profile', 'description'],
-    },
+    description: 'Posts on Hark’s own social accounts.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content'],
+    defaults: { utm_medium: 'organic_social' },
+    options: { utm_source: SOCIAL_PLATFORMS },
   },
   {
-    id: 'email',
-    label: 'Email',
+    id: 'founder',
+    label: 'Founder posts',
     group: 'Owned & organic',
-    description: 'Newsletters, lifecycle and transactional email.',
-    fields: BASIC_FIELDS,
-    defaults: { utm_medium: 'email' },
-    options: {
-      utm_source: ['newsletter', 'lifecycle', 'transactional', 'product_update'],
-      utm_content: ['hero_cta', 'body_link', 'footer', 'ps'],
-    },
-    notes: ['Source is the list or program. Content is the link position in the email.'],
+    description: 'Links shared by Hark’s founder on their own accounts.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content'],
+    defaults: { utm_medium: 'founder' },
+    options: { utm_source: SOCIAL_PLATFORMS },
   },
   {
-    id: 'sms',
-    label: 'SMS',
+    id: 'community',
+    label: 'Community',
     group: 'Owned & organic',
-    description: 'Text message campaigns.',
-    fields: BASIC_FIELDS,
-    defaults: { utm_medium: 'sms' },
+    description: 'Community posts: Discord, Reddit communities, forums. Source is the community host.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content'],
+    defaults: { utm_medium: 'community' },
+    options: { utm_source: ['discord', 'reddit', 'slack'] },
   },
   {
-    id: 'push',
-    label: 'Push notification',
+    id: 'earned_pr',
+    label: 'Earned PR',
     group: 'Owned & organic',
-    description: 'Web or app push that opens a web page.',
-    fields: BASIC_FIELDS,
-    defaults: { utm_medium: 'push' },
+    description: 'Press coverage and reviews. Source is the outlet.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content'],
+    defaults: { utm_medium: 'earned_pr' },
   },
   {
-    id: 'qr',
-    label: 'QR code & offline',
+    id: 'referral',
+    label: 'Referral invite',
     group: 'Owned & organic',
-    description: 'Print, events, OOH and packaging.',
-    fields: BASIC_FIELDS,
-    defaults: { utm_medium: 'qr' },
-    notes: ['Source is the placement, e.g. sf_billboard or launch_event.'],
+    description: 'Hark invite and referral links.',
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_referral_code'],
+    defaults: { utm_source: 'hark_invite', utm_medium: 'referral' },
+    sources: ['hark_invite'],
+    required: ['hark_referral_code'],
   },
   {
     id: 'other',
     label: 'Other',
     group: 'Owned & organic',
-    description: "Anything the channels above don't cover. Every field is open.",
-    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'utm_adgroup', 'utm_ad', 'utm_creative', 'utm_usecase'],
+    description: "Anything the channels above don't cover. Values not in the schema are kept but flagged as unmapped by Hark.",
+    fields: ['utm_source', 'utm_medium', 'utm_campaign', 'hark_use_case', 'utm_content'],
     defaults: {},
+    unlisted: true,
   },
 ];
 
@@ -394,29 +443,37 @@ export const CHANNEL_BY_ID: Record<string, Channel> = Object.fromEntries(CHANNEL
 
 export const channelOf = (id: string): Channel => CHANNEL_BY_ID[id] ?? CHANNEL_BY_ID.other;
 
+/** Channels whose links carry a creator, so the creator registry applies. */
+export const isCreatorChannel = (c: Channel): boolean => !!c.bulk?.hark_creator_id;
+
+/** Journeys that have no web link to build. Shown on the Conventions tab. */
+export const NO_LINK_CHANNELS = [
+  {
+    label: 'Apple Search Ads',
+    pair: 'apple_ads / app_acq',
+    note: 'Native App Store ad → install. Attributed through Apple AdServices or the MMP, not a UTM link.',
+  },
+];
+
 /**
- * Canonical source names. Whatever someone types or pastes ("IG", "Tik Tok", "fb") is stored as
- * the canonical value, so one platform never shows up as three sources in reporting.
+ * Canonical source names. Whatever someone types or pastes ("IG", "Tik Tok") is stored as the
+ * canonical value, so one platform never shows up as three sources in reporting.
  */
 export const SOURCE_ALIASES: Record<string, string> = {
   ig: 'instagram',
   insta: 'instagram',
-  instagram: 'instagram',
   tt: 'tiktok',
   tik_tok: 'tiktok',
-  tiktok: 'tiktok',
-  fb: 'facebook',
-  facebook: 'facebook',
-  meta: 'facebook',
   yt: 'youtube',
-  youtube: 'youtube',
+  fb: 'facebook',
   twitter: 'x',
-  'x.com': 'x',
+  x_com: 'x',
   snap: 'snapchat',
-  li: 'linkedin',
   linked_in: 'linkedin',
   microsoft: 'bing',
   microsoft_ads: 'bing',
   google_ads: 'google',
   adwords: 'google',
+  apple_search_ads: 'apple_ads',
+  ttd: 'the_trade_desk',
 };

@@ -104,3 +104,27 @@ describe('tables and lists', () => {
     expect(parsed.rows.map((r) => r.values.value)).toEqual(['morning brew', 'the hustle', 'tldr']);
   });
 });
+
+describe('creator roster, 21 Oct 2026 format', () => {
+  const parsed = parseDump(readFileSync(resolve(import.meta.dirname, '../../examples/hark-creators-2026-10-21.txt'), 'utf8'));
+  const byKey = new Map(parsed.rows.map((r) => [`${r.values.name}|${r.values.platform}`, r.values]));
+
+  it('reads en-dash lines, with or without a bullet', () => {
+    expect(parsed.kind).toBe('roster');
+    expect(parsed.ignored).toEqual([]);
+    // 17 creators: 10 on TikTok + IG, 7 on IG only.
+    expect(parsed.rows).toHaveLength(27);
+    expect(parsed.rows.every((r) => r.include && r.flags.length === 0)).toBe(true);
+  });
+
+  it('keeps per-platform handles and IG-only creators', () => {
+    expect(byKey.get('Sammi Tannor Cohen|tiktok')?.handle).toBe('sammicohentalks');
+    expect(byKey.get('Nazsare English|instagram')?.handle).toBe('itsnaszare');
+    expect(byKey.get('Nazsare English|tiktok')?.handle).toBe('itsnazsare');
+    expect(byKey.get('Olivia Zhang|tiktok')?.handle).toBe('livviazhang');
+    expect(byKey.get('Khani|instagram')?.handle).toBe('khani.trendy');
+    expect(byKey.has('Khani|tiktok')).toBe(false);
+    expect(byKey.has('Morgan & Ale|tiktok')).toBe(false);
+    expect(byKey.get('Josh Lewis|instagram')).toMatchObject({ handle: 'josh_jogs', placement: 'link_in_bio' });
+  });
+});

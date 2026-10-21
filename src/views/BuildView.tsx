@@ -2,9 +2,10 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { APP } from '../config/app';
 import { channelOf } from '../config/channels';
 import { PARAM_KEYS, PARAMS, type ParamKey, type Params } from '../config/params';
-import { Badge, Card, ChannelSelect, CopyButton, Field, formatDate, IssueList, Notice, UrlText } from '../components/ui';
+import { Badge, CampaignHelper, Card, ChannelSelect, CopyButton, Field, formatDate, IssueList, Notice, UrlText } from '../components/ui';
+import { creatorForContent } from '../lib/creators';
 import { suggestionsFor } from '../lib/memory';
-import type { NewLink } from '../lib/types';
+import type { CreatorRecord, NewLink } from '../lib/types';
 import { buildLink, hasMacro, normalizeParam } from '../lib/utm';
 import { useLibrary } from '../state/library';
 import type { Identity } from '../state/identity';
@@ -17,7 +18,7 @@ export interface BuildDraft {
   notes: string;
 }
 
-export const newDraft = (channel = 'creator', destination = APP.destinations[0]?.url ?? ''): BuildDraft => ({
+export const newDraft = (channel = 'influencer_linkinbio', destination = APP.destinations[0]?.url ?? ''): BuildDraft => ({
   channel,
   destination,
   params: { ...channelOf(channel).defaults },
@@ -42,8 +43,10 @@ function switchChannel(draft: BuildDraft, nextId: string): BuildDraft {
   return { ...draft, channel: nextId, params };
 }
 
-export function autoLabel(params: Params): string {
-  const who = params.utm_content && !hasMacro(params.utm_content) ? params.utm_content : params.utm_campaign;
+/** "Olivia Zhang · instagram" for a registered creator, else the content or campaign plus source. */
+export function autoLabel(params: Params, creators: CreatorRecord[] = []): string {
+  const creator = params.hark_creator_id ? creators.find((c) => c.id === params.hark_creator_id) : undefined;
+  const who = creator?.name || (params.utm_content && !hasMacro(params.utm_content) ? params.utm_content : params.utm_campaign);
   return [who, params.utm_source].filter((v) => v && !hasMacro(v)).join(' · ');
 }
 
@@ -52,11 +55,13 @@ export function BuildView({
   setDraft,
   ensureIdentity,
   onOpenLibrary,
+  onOpenBulk,
 }: {
   draft: BuildDraft;
   setDraft: (d: BuildDraft) => void;
   ensureIdentity: () => Promise<Identity | null>;
   onOpenLibrary: () => void;
+  onOpenBulk: () => void;
 }) {
   const library = useLibrary();
   const channel = channelOf(draft.channel);
@@ -66,7 +71,28 @@ export function BuildView({
 
   const built = useMemo(() => buildLink(draft.channel, draft.destination, draft.params), [draft.channel, draft.destination, draft.params]);
   const existing = built.url ? library.byUrl.get(built.url) : undefined;
-  const label = draft.label.trim() || autoLabel(built.params);
+  const label = draft.label.trim() || autoLabel(built.params, library.creators);
+  const creatorIds = Object.fromEntries(library.creators.map((c) => [c.id, `${c.name} · ${Object.values(c.handles).map((h) => '@' + h).join(' ')}`]));
+  const unknownCreator =
+    built.params.hark_creator_id && library.storage === 'database' && !creatorIds[built.params.hark_creator_id] && /^CT\d{4,}$/.test(built.params.hark_creator_id);
+  const [registering, setRegistering] = useState(false);
+
+  /** Registers the handle in Content as a new creator and fills in the ID it gets. */
+  const registerCreator = async () => {
+    const who = await ensureIdentity();
+    if (!who) return;
+    setRegistering(true);
+    try {
+      const handle = (draft.params.utm_content ?? '').trim().replace(/^@/, '');
+      const platform = built.params.utm_source ?? 'other';
+      const res = await library.saveCreators([{ name: handle, handles: { [platform]: handle } }], who.name);
+      setDraft({ ...draft, params: { ...draft.params, hark_creator_id: res.creators[0].id } });
+    } catch (err) {
+      setResult({ tone: 'bad', text: (err as Error).message });
+    } finally {
+      setRegistering(false);
+    }
+  };
 
   const extraKeys = PARAM_KEYS.filter((k) => !channel.fields.includes(k));
   const visibleExtras = extraKeys.filter((k) => showAll || draft.params[k]);
@@ -113,6 +139,15 @@ export function BuildView({
     let hint: ReactNode = null;
     if (hasMacro(raw)) hint = <span className="macro-hint">Filled in by the ad platform at click time</span>;
     else if (normalized && normalized !== raw.trim()) hint = <>Saved as <code>{normalized}</code></>;
+    if (k === 'utm_campaign') {
+      hint = (
+        <>
+          {hint}
+          <CampaignHelper onUse={(name) => setParam('utm_campaign', name)} />
+        </>
+      );
+    }
+    if (k === 'hark_creator_id') hint = creatorHint();
     return (
       <Field
         key={k}
@@ -128,12 +163,40 @@ export function BuildView({
         suggestions={suggestionsFor(
           channel.defaults[k] ? [channel.defaults[k]!] : [],
           channel.options?.[k],
-          k === 'utm_usecase' ? APP.useCases : undefined,
+          k === 'hark_use_case' ? APP.useCases : undefined,
+          k === 'hark_creator_id' ? library.creators.map((c) => c.id) : undefined,
           library.memory.params[k],
         )}
+        suggestionLabels={k === 'hark_creator_id' ? creatorIds : undefined}
       />
     );
   };
+
+  function creatorHint(): ReactNode {
+    const id = built.params.hark_creator_id;
+    if (id && creatorIds[id]) return <>{creatorIds[id]}</>;
+    if (unknownCreator) return <span className="warn-text">{id} isn’t in the Creators tab yet.</span>;
+    const content = draft.params.utm_content ?? '';
+    const match = content.trim() ? creatorForContent(library.creators, content) : undefined;
+    if (match && match.id !== id) {
+      return (
+        <>
+          @{content.replace(/^@/, '')} is {match.name}.{' '}
+          <button type="button" className="btn-link small" onClick={() => setParam('hark_creator_id', match.id)}>
+            Use {match.id}
+          </button>
+        </>
+      );
+    }
+    if (!id && content.trim() && library.storage === 'database') {
+      return (
+        <button type="button" className="btn-link small" disabled={registering} onClick={registerCreator}>
+          {registering ? 'Registering…' : `New creator? Register @${content.trim().replace(/^@/, '')} and get an ID`}
+        </button>
+      );
+    }
+    return null;
+  }
 
   return (
     <div className="build-grid">
@@ -146,6 +209,15 @@ export function BuildView({
             <ChannelSelect id="build-channel" value={draft.channel} onChange={(id) => setDraft(switchChannel(draft, id))} />
           </div>
           <p className="channel-desc">{channel.description}</p>
+          {channel.group === 'Creators' && (
+            <Notice tone="info">
+              Building links for a list of creators? Paste the whole list into{' '}
+              <button type="button" className="btn-link" onClick={onOpenBulk}>
+                Bulk / creator list
+              </button>{' '}
+              and get every link at once.
+            </Notice>
+          )}
           {channel.notes && (
             <ul className="notes">
               {channel.notes.map((n) => (
@@ -179,7 +251,7 @@ export function BuildView({
           </div>
           {extraKeys.length > 0 && (
             <button type="button" className="btn-link" onClick={() => setShowAll((s) => !s)}>
-              {showAll ? 'Hide extra fields' : `More fields (${extraKeys.map((k) => PARAMS[k].label).join(', ')})`}
+              {showAll ? 'Hide extra fields' : `More fields (${extraKeys.length}): ${extraKeys.slice(0, 4).map((k) => PARAMS[k].label).join(', ')}…`}
             </button>
           )}
         </Card>

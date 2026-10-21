@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { APP } from './config/app';
+import { CHANNEL_BY_ID } from './config/channels';
 import type { LinkRecord } from './lib/types';
+import { hasMacro, isCurrentFormat } from './lib/utm';
 import { useIdentity, type Identity } from './state/identity';
 import { useLibrary } from './state/library';
 import { BuildView, newDraft, type BuildDraft } from './views/BuildView';
 import { BulkView, newBulkState, type BulkState } from './views/BulkView';
+import { CreatorsView } from './views/CreatorsView';
 import { GuideView } from './views/GuideView';
 import { emptyFilters, LibraryView, type LibraryFilters } from './views/LibraryView';
 
 const TABS = [
-  { id: 'build', label: 'Build a link' },
-  { id: 'bulk', label: 'Bulk from a list' },
+  { id: 'build', label: 'Single link' },
+  { id: 'bulk', label: 'Bulk / creator list' },
   { id: 'library', label: 'Library' },
+  { id: 'creators', label: 'Creators' },
   { id: 'guide', label: 'Conventions' },
 ] as const;
 type Tab = (typeof TABS)[number]['id'];
@@ -63,7 +67,18 @@ export function App() {
   };
 
   const reuse = (link: LinkRecord) => {
-    setDraft({ channel: link.channel, destination: link.baseUrl, params: { ...link.params }, label: '', notes: '' });
+    if (isCurrentFormat(link)) {
+      setDraft({ channel: link.channel, destination: link.baseUrl, params: { ...link.params }, label: '', notes: '' });
+    } else {
+      // Built before the schema: start from today's channel and keep only the values that carry over.
+      const channel = link.channel === 'creator' ? 'influencer_linkinbio' : link.channel in CHANNEL_BY_ID ? link.channel : 'other';
+      const next = newDraft(channel, link.baseUrl);
+      for (const k of ['utm_source', 'utm_content'] as const) {
+        const v = link.params[k];
+        if (v && !hasMacro(v) && !next.params[k]) next.params[k] = v;
+      }
+      setDraft(next);
+    }
     setTab('build');
   };
 
@@ -87,7 +102,7 @@ export function App() {
                 <h1>
                   {APP.client} · {APP.title}
                 </h1>
-                <p className="muted small">One naming convention for every channel. Every link saved for the team.</p>
+                <p className="muted small">Hark x Darkroom UTM schema v1.6. Every link saved for the team.</p>
               </div>
             </div>
             <div className="top-right">
@@ -117,7 +132,13 @@ export function App() {
 
       <main className="shell">
         <div hidden={tab !== 'build'}>
-          <BuildView draft={draft} setDraft={setDraft} ensureIdentity={ensureIdentity} onOpenLibrary={() => setTab('library')} />
+          <BuildView
+            draft={draft}
+            setDraft={setDraft}
+            ensureIdentity={ensureIdentity}
+            onOpenLibrary={() => setTab('library')}
+            onOpenBulk={() => setTab('bulk')}
+          />
         </div>
         <div hidden={tab !== 'bulk'}>
           <BulkView
@@ -131,6 +152,15 @@ export function App() {
           />
         </div>
         {tab === 'library' && <LibraryView filters={filters} setFilters={setFilters} onReuse={reuse} />}
+        {tab === 'creators' && (
+          <CreatorsView
+            ensureIdentity={ensureIdentity}
+            onShowLinks={(id) => {
+              setFilters({ ...emptyFilters(), q: id });
+              setTab('library');
+            }}
+          />
+        )}
         {tab === 'guide' && <GuideView />}
       </main>
 
