@@ -4,7 +4,6 @@ import { APP, currentYyyymm } from '../config/app';
 import { CHANNELS, channelOf, isCreatorChannel } from '../config/channels';
 import { PARAM_KEYS, PARAMS, type ParamKey, type Params } from '../config/params';
 import { Badge, CampaignHelper, Card, ChannelSelect, CopyButton, Field, Notice, UrlText } from '../components/ui';
-import { indexCreators, resolveRowCreators, type RowCreator } from '../lib/creators';
 import { htmlToDumpText, parseDelimited, parseDump, tableFromCells, type ParsedDump } from '../lib/dump';
 import { download, toCsv, toSlack } from '../lib/export';
 import { fillTemplate } from '../lib/template';
@@ -48,7 +47,6 @@ const COLUMN_ALIASES: Record<ParamKey | 'destination' | 'label', string[]> = {
   utm_campaign: ['utm_campaign', 'campaign', 'campaign_name'],
   hark_use_case: ['hark_use_case', 'use_case', 'usecase'],
   utm_content: ['utm_content', 'content', 'handle', 'creator_handle', 'username'],
-  hark_creator_id: ['hark_creator_id', 'creator_id'],
   hark_creative_id: ['hark_creative_id', 'creative_id'],
   hark_landing_page_id: ['hark_landing_page_id', 'landing_page_id'],
   hark_experiment_id: ['hark_experiment_id', 'experiment_id'],
@@ -70,8 +68,7 @@ const findColumn = (columns: string[], names: string[]) => names.find((n) => col
 /** Channel defaults, then the channel's bulk templates, then any columns named like a parameter. */
 export function templatesFor(channelId: string, dump: ParsedDump): Templates {
   const channel = channelOf(channelId);
-  // Creator channels get a [creator_id] column from the registry.
-  const cols = isCreatorChannel(channel) && dump.columns.length ? [...dump.columns, 'creator_id'] : dump.columns;
+  const cols = dump.columns;
   const out: Templates = { ...channel.defaults };
   if (isCreatorChannel(channel)) out.utm_campaign = APP.creatorCampaign(currentYyyymm());
   const usable = (template: string) => [...template.matchAll(/\[([^\]]+)\]/g)].every((m) => cols.includes(m[1]));
@@ -129,22 +126,6 @@ export function BulkView({
   const { dump } = state;
   const batchName = state.batchName ?? `${channel.label} · ${monthYear()}`;
   const creatorMode = isCreatorChannel(channel);
-  const creatorIndex = useMemo(() => indexCreators(library.creators), [library.creators]);
-  // Creator IDs come from the shared registry. Without a database there is nothing to number
-  // against, so no IDs are made up (they would collide with the next list).
-  const registryReady = library.storage === 'database';
-  const resolution = useMemo(
-    () => (creatorMode && registryReady ? resolveRowCreators(dump.rows, creatorIndex) : null),
-    [creatorMode, registryReady, dump.rows, creatorIndex],
-  );
-  /** A row's values plus its creator ID: from the paste, the registry, or the next free number. */
-  const rowValues = (i: number, ids?: Map<string, string>) => {
-    const values = dump.rows[i].values;
-    const resolved = resolution?.byRow[i];
-    const id = values.creator_id?.trim() || (resolved ? (ids?.get(resolved.group) ?? resolved.id) : '');
-    return creatorMode ? { ...values, creator_id: id } : values;
-  };
-
   const loadDump = (next: ParsedDump, extra: Partial<BulkState>) => {
     setResult(null);
     setState((prev) => {
@@ -234,10 +215,10 @@ export function BulkView({
     setTemplate(focused, replace ? `[${col}]` : `${current}_[${col}]`);
   };
 
-  const computeRows = (ids?: Map<string, string>): ComputedRow[] => {
+  const computeRows = (): ComputedRow[] => {
     const seen = new Set<string>();
     return dump.rows.map((r, index) => {
-      const values = rowValues(index, ids);
+      const values = r.values;
       const raw: Params = {};
       for (const k of PARAM_KEYS) {
         const t = state.templates[k];
@@ -248,7 +229,7 @@ export function BulkView({
       const labelTemplate = state.templates.label?.trim();
       const label =
         (labelTemplate ? fillTemplate(labelTemplate, values).value.replace(/\[[^\]]+\]/g, '').replace(/^[\s·]+|[\s·]+$/g, '') : '') ||
-        autoLabel(built.params, library.creators);
+        autoLabel(built.params);
       let status: ComputedRow['status'] = 'new';
       if (!r.include) status = 'skipped';
       else if (!built.ok) status = 'error';
@@ -258,7 +239,7 @@ export function BulkView({
       return { index, include: r.include, label, built, status, flags: r.flags };
     });
   };
-  const rows: ComputedRow[] = useMemo(() => computeRows(), [dump.rows, state.templates, state.destination, state.channel, library.byUrl, resolution, library.creators]);
+  const rows: ComputedRow[] = useMemo(() => computeRows(), [dump.rows, state.templates, state.destination, state.channel, library.byUrl]);
 
   const counts = {
     new: rows.filter((r) => r.status === 'new').length,
@@ -276,21 +257,7 @@ export function BulkView({
     setSaving(true);
     setResult(null);
     try {
-      // Register the creators first, so every link carries its final creator ID.
-      let finalRows = ready;
-      if (creatorMode && resolution) {
-        const included = new Set(ready.map((r) => r.index));
-        const groups = resolution.groups.filter((g) => g.rows.some((i) => included.has(i)));
-        if (groups.length) {
-          const res = await library.saveCreators(
-            groups.map((g) => g.input),
-            who.name,
-          );
-          const ids = new Map(groups.map((g, i) => [g.key, res.creators[i].id]));
-          finalRows = computeRows(ids).filter((r) => included.has(r.index) && r.built.ok);
-        }
-      }
-      const links: NewLink[] = finalRows.map((r) => ({
+      const links: NewLink[] = ready.map((r) => ({
         url: r.built.url,
         baseUrl: r.built.base,
         params: r.built.params,
@@ -301,12 +268,11 @@ export function BulkView({
         team: who.team,
       }));
       const res = await library.save(links, batchName);
-      const newCreators = creatorMode && resolution ? resolution.groups.filter((g) => resolution.byRow[g.rows[0]]?.isNew).length : 0;
       setResult({
         tone: 'good',
         text: `Saved ${res.created.length} new link${res.created.length === 1 ? '' : 's'}${
           res.existing.length ? `; ${res.existing.length} ${res.existing.length === 1 ? 'was' : 'were'} already in the library` : ''
-        }${newCreators ? `. Registered ${newCreators} new creator${newCreators === 1 ? '' : 's'} in the Creators tab` : ''}.`,
+        }.`,
         batch: res.created.length > 1 ? batchName : undefined,
       });
     } catch (err) {
@@ -326,8 +292,6 @@ export function BulkView({
     if (dump.kind === 'list') return `Read as a list: ${dump.rows.length} item${dump.rows.length === 1 ? '' : 's'}. Put [value] in whichever field the list is for.`;
     return null;
   };
-
-  const newCreatorCount = resolution ? new Set(resolution.byRow.filter((r, i) => r?.isNew && dump.rows[i].include).map((r) => r!.group)).size : 0;
 
   // Columns the templates use are editable; the rest fold into one compact "Other" column.
   const referenced = new Set(
@@ -469,22 +433,15 @@ export function BulkView({
 
           <div className="columns-bar">
             <span className="muted small">Columns:</span>
-            {[...dump.columns, ...(creatorMode && !dump.columns.includes('creator_id') ? ['creator_id'] : [])].map((c) => (
+            {dump.columns.map((c) => (
               <button key={c} type="button" className="chip" onClick={() => insertColumn(c)} title={`Insert [${c}]`}>
                 [{c}]
               </button>
             ))}
           </div>
-          {creatorMode && !registryReady && library.storage !== 'loading' && (
-            <Notice tone="warn">
-              Creator IDs come from the shared Creators registry, which needs the database. Connect it in Vercel (the Library tab shows
-              how), or add a creator_id column with IDs Hark issued.
-            </Notice>
-          )}
-          {creatorMode && registryReady && (
+          {creatorMode && (
             <p className="muted small">
-              <code>[creator_id]</code> comes from the Creators tab: creators already there keep their ID; new ones get the next CT
-              number when you save{newCreatorCount ? ` (${newCreatorCount} new in this list)` : ''}.
+              Each creator is identified by <code>[handle]</code> in Content: their handle on that platform, without the @.
             </p>
           )}
 
@@ -566,7 +523,6 @@ export function BulkView({
                   {editCols.map((c) => (
                     <th key={c}>{c}</th>
                   ))}
-                  {creatorMode && <th>Creator ID</th>}
                   {otherCols.length > 0 && <th>Other</th>}
                   <th className="col-url">Link</th>
                   <th>Status</th>
@@ -595,11 +551,6 @@ export function BulkView({
                         />
                       </td>
                     ))}
-                    {creatorMode && (
-                      <td className="col-creator">
-                        <CreatorCell value={rowValues(r.index).creator_id} resolved={resolution?.byRow[r.index] ?? null} fromPaste={!!dump.rows[r.index].values.creator_id?.trim()} />
-                      </td>
-                    )}
                     {otherCols.length > 0 && (
                       <td className="col-other muted small">
                         {otherCols
@@ -640,20 +591,6 @@ export function BulkView({
         </Card>
       )}
     </div>
-  );
-}
-
-function CreatorCell({ value, resolved, fromPaste }: { value: string; resolved: RowCreator | null; fromPaste: boolean }) {
-  if (!value) return <span className="muted">—</span>;
-  if (fromPaste || !resolved) return <code>{value}</code>;
-  return resolved.isNew ? (
-    <span title="Not in the Creators tab yet. This ID is assigned when you save.">
-      <code>{value}</code> <Badge tone="warn">new</Badge>
-    </span>
-  ) : (
-    <span title={resolved.creator?.name}>
-      <code>{value}</code>
-    </span>
   );
 }
 

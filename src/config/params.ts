@@ -10,7 +10,6 @@ export const PARAM_KEYS = [
   'utm_campaign',
   'hark_use_case',
   'utm_content',
-  'hark_creator_id',
   'hark_creative_id',
   'hark_landing_page_id',
   'hark_experiment_id',
@@ -32,11 +31,12 @@ export type Params = Partial<Record<ParamKey, string>>;
  * How a value is cleaned and checked:
  *  - slug: lowercase a–z, 0–9, underscore (anything else becomes _, repeats collapse)
  *  - term: lowercase, spaces allowed (URL-encoded)
- *  - hark_id: Hark key with a fixed prefix, e.g. CT0042
+ *  - hark_id: Hark key with a fixed prefix, e.g. CR0001
  *  - code: exact case, e.g. a referral code
  *  - platform_id: opaque platform ID or macro, kept exactly as written
+ *  - site: a site / placement macro, or a typed code cleaned like a slug (fb, ig, g)
  */
-export type ParamKind = 'slug' | 'term' | 'hark_id' | 'code' | 'platform_id';
+export type ParamKind = 'slug' | 'term' | 'hark_id' | 'code' | 'platform_id' | 'site';
 
 export interface ParamDef {
   key: ParamKey;
@@ -101,18 +101,8 @@ export const PARAMS: Record<ParamKey, ParamDef> = {
     kind: 'slug',
     max: 256,
     when: 'Optional',
-    help: 'Readable label: ad or creative variant, creator handle, post or deliverable, email flow.',
+    help: 'Readable label: ad or creative variant, post, email flow. For creators, their handle on that platform, which is how a creator is identified.',
     example: 'food_demo_v1',
-  }),
-  hark_creator_id: def({
-    key: 'hark_creator_id',
-    label: 'Creator ID',
-    kind: 'hark_id',
-    prefix: 'CT',
-    max: 32,
-    when: 'Creator activity',
-    help: 'The creator’s Hark key (CT + 4 digits). The Creators tab keeps one per creator.',
-    example: 'CT0042',
   }),
   hark_creative_id: def({
     key: 'hark_creative_id',
@@ -210,7 +200,7 @@ export const PARAMS: Record<ParamKey, ParamDef> = {
   hark_ad_site: def({
     key: 'hark_ad_site',
     label: 'Site / placement',
-    kind: 'platform_id',
+    kind: 'site',
     max: 32,
     when: 'When available',
     help: 'Meta {{site_source_name}}, Google {network}, TikTok __PLACEMENT__.',

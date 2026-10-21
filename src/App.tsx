@@ -7,7 +7,6 @@ import { useIdentity, type Identity } from './state/identity';
 import { useLibrary } from './state/library';
 import { BuildView, newDraft, type BuildDraft } from './views/BuildView';
 import { BulkView, newBulkState, type BulkState } from './views/BulkView';
-import { CreatorsView } from './views/CreatorsView';
 import { GuideView } from './views/GuideView';
 import { emptyFilters, LibraryView, type LibraryFilters } from './views/LibraryView';
 
@@ -15,7 +14,6 @@ const TABS = [
   { id: 'build', label: 'Single link' },
   { id: 'bulk', label: 'Bulk / creator list' },
   { id: 'library', label: 'Library' },
-  { id: 'creators', label: 'Creators' },
   { id: 'guide', label: 'Conventions' },
 ] as const;
 type Tab = (typeof TABS)[number]['id'];
@@ -152,15 +150,6 @@ export function App() {
           />
         </div>
         {tab === 'library' && <LibraryView filters={filters} setFilters={setFilters} onReuse={reuse} />}
-        {tab === 'creators' && (
-          <CreatorsView
-            ensureIdentity={ensureIdentity}
-            onShowLinks={(id) => {
-              setFilters({ ...emptyFilters(), q: id });
-              setTab('library');
-            }}
-          />
-        )}
         {tab === 'guide' && <GuideView />}
       </main>
 

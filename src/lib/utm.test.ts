@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { channelOf } from '../config/channels';
-import { buildLink, joinUrl, normalizeParam, parseDestination, slugify, splitTaggedUrl } from './utm';
+import { buildLink, isCurrentFormat, joinUrl, normalizeParam, parseDestination, slugify, splitTaggedUrl } from './utm';
 
 describe('schema value rules', () => {
   it('normalizes campaign names exactly as the schema describes', () => {
@@ -25,8 +25,8 @@ describe('schema value rules', () => {
   });
 
   it('pads Hark keys and keeps platform IDs exactly', () => {
-    expect(normalizeParam('hark_creator_id', 'ct42')).toBe('CT0042');
-    expect(normalizeParam('hark_creator_id', 'CT 12345')).toBe('CT12345');
+    expect(normalizeParam('hark_creative_id', 'cr42')).toBe('CR0042');
+    expect(normalizeParam('hark_landing_page_id', 'LP 12345')).toBe('LP12345');
     expect(normalizeParam('hark_ad_id', '000123')).toBe('000123');
     expect(normalizeParam('hark_ad_campaign_id', '123456789012345678')).toBe('123456789012345678');
     expect(normalizeParam('hark_referral_code', ' ZachX2026 ')).toBe('ZachX2026');
@@ -34,10 +34,13 @@ describe('schema value rules', () => {
 
   it('keeps the separator next to a macro', () => {
     expect(normalizeParam('utm_content', 'Prospecting_{{adset.id}}')).toBe('prospecting_{{adset.id}}');
+    expect(normalizeParam('utm_content', '__CID__')).toBe('__CID__');
+    expect(normalizeParam('utm_content', ' Spark __CID__ ')).toBe('spark___CID__');
   });
 
   it('keeps macros and lowercases search terms', () => {
     expect(normalizeParam('hark_ad_site', '{{site_source_name}}')).toBe('{{site_source_name}}');
+    expect(normalizeParam('hark_ad_site', 'Audience Network')).toBe('audience_network');
     expect(normalizeParam('utm_term', 'Food  Delivery Assistant')).toBe('food delivery assistant');
     expect(normalizeParam('utm_term', '{keyword}')).toBe('{keyword}');
   });
@@ -45,9 +48,9 @@ describe('schema value rules', () => {
 
 describe('destinations', () => {
   it('adds https and strips existing tracking params', () => {
-    const d = parseDestination('hark.com/pro?ref=abc&utm_source=old&hark_creator_id=CT0001');
+    const d = parseDestination('hark.com/pro?ref=abc&utm_source=old&hark_use_case=x');
     expect(d.base).toBe('https://hark.com/pro?ref=abc');
-    expect(d.warnings[0]).toMatch(/utm_source, hark_creator_id/);
+    expect(d.warnings[0]).toMatch(/utm_source, hark_use_case/);
   });
 
   it('rejects junk and warns on store links and the example.com placeholder', () => {
@@ -106,35 +109,35 @@ describe('schema link examples', () => {
     );
   });
 
-  it('Paid creator amplification', () => {
-    expect(build('meta_ads', { hark_creator_id: 'CT0042' })).toBe(
-      'https://example.com/?utm_source=meta&utm_medium=paid_social&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&hark_creator_id=CT0042&hark_ad_campaign_id={{campaign.id}}&hark_ad_group_id={{adset.id}}&hark_ad_id={{ad.id}}&hark_ad_site={{site_source_name}}&utm_id={{campaign.id}}',
+  it('Paid creator amplification, with the creator in Content instead of hark_creator_id', () => {
+    expect(build('meta_ads', { utm_content: 'livviazhang_food_demo_v1' })).toBe(
+      'https://example.com/?utm_source=meta&utm_medium=paid_social&utm_campaign=us_signup_food_202610&hark_use_case=food_ordering&utm_content=livviazhang_food_demo_v1&hark_ad_campaign_id={{campaign.id}}&hark_ad_group_id={{adset.id}}&hark_ad_id={{ad.id}}&hark_ad_site={{site_source_name}}&utm_id={{campaign.id}}',
     );
   });
 });
 
-/** Creator links: the schema keeps the existing platform / creator pair and adds the creator key. */
+/** Creator links: the schema's platform / creator pair, with the handle in utm_content identifying the creator. */
 describe('creator links', () => {
   const creator = (extra: Record<string, string>) =>
     buildLink('creator', 'https://hark.com/', { ...channelDefaults('creator'), utm_campaign: 'us_signup_creators_202610', ...extra });
 
-  it('platform / creator with the handle and the Hark creator ID', () => {
-    const link = creator({ utm_source: 'TT', utm_content: '@livviazhang', hark_creator_id: 'ct14' });
+  it('platform / creator with the handle in Content', () => {
+    const link = creator({ utm_source: 'TT', utm_content: '@livviazhang' });
     expect(link.ok).toBe(true);
     expect(link.issues).toEqual([]);
     expect(link.url).toBe(
-      'https://hark.com/?utm_source=tiktok&utm_medium=creator&utm_campaign=us_signup_creators_202610&utm_content=livviazhang&hark_creator_id=CT0014',
+      'https://hark.com/?utm_source=tiktok&utm_medium=creator&utm_campaign=us_signup_creators_202610&utm_content=livviazhang',
     );
   });
 
   it('flags a non-creator platform and a link tool as the source', () => {
-    expect(creator({ utm_source: 'linktree', hark_creator_id: 'CT0001' }).issues.map((i) => i.message).join()).toMatch(/instagram, tiktok, youtube/);
+    expect(creator({ utm_source: 'linktree', utm_content: 'itsnazsare' }).issues.map((i) => i.message).join()).toMatch(/instagram, tiktok, youtube/);
   });
 
   it('builds the proposed influencer and lifecycle rows, with a warning that Hark will flag them', () => {
     for (const [channel, extra] of [
-      ['influencer_linkinbio', { utm_source: 'instagram', hark_creator_id: 'CT0042' }],
-      ['paid_influencer', { utm_source: 'instagram', hark_creator_id: 'CT0042', utm_content: 'food_demo_reel_v1' }],
+      ['influencer_linkinbio', { utm_source: 'instagram', utm_content: 'itsnazsare' }],
+      ['paid_influencer', { utm_source: 'instagram', utm_content: 'itsnazsare_food_demo_reel_v1' }],
       ['lifecycle', { utm_content: 'reactivation_day30_v1' }],
     ] as const) {
       const link = buildLink(channel, 'https://hark.com/', { ...channelDefaults(channel), utm_campaign: 'us_signup_food_202610', ...extra });
@@ -145,16 +148,34 @@ describe('creator links', () => {
 });
 
 describe('checks', () => {
-  it('flags missing creator IDs, bad IDs, off-schema sources and campaign names', () => {
+  it('flags a missing handle, off-schema sources and campaign names', () => {
     const link = buildLink('creator', 'https://hark.com', { utm_source: 'linktree', utm_medium: 'creator', utm_campaign: 'creators' });
     const messages = link.issues.map((i) => i.message).join(' | ');
     expect(link.ok).toBe(false);
-    expect(messages).toMatch(/Creator ID is required/);
+    expect(messages).toMatch(/Content is required/);
     expect(messages).toMatch(/instagram, tiktok, youtube/);
     expect(messages).toMatch(/\{market\}_\{objective\}/);
+  });
 
-    const bad = buildLink('creator', 'https://hark.com', { utm_source: 'instagram', utm_medium: 'creator', utm_campaign: 'us_signup_creators_202610', hark_creator_id: 'olivia' });
-    expect(bad.issues.map((i) => i.message).join()).toMatch(/CT0042/);
+  it('checks Hark keys against their prefix', () => {
+    const bad = buildLink('meta_ads', 'https://hark.com', { utm_source: 'meta', utm_medium: 'paid_social', utm_campaign: 'us_signup_food_202610', hark_creative_id: 'demo' });
+    expect(bad.issues.map((i) => i.message).join()).toMatch(/CR0001/);
+  });
+
+  it('warns when Term is used outside search, and treats the Oct 16 creator format as off schema', () => {
+    const params = { utm_source: 'tiktok', utm_medium: 'creator', utm_campaign: 'creator_always_on', utm_content: 'livviazhang', utm_term: 'link_in_bio' };
+    const built = buildLink('creator', 'https://hark.com/', params);
+    expect(built.issues.map((i) => i.message).join()).toMatch(/paid search keywords only/);
+    expect(isCurrentFormat({ channel: 'creator', baseUrl: 'https://hark.com/', params, url: built.url })).toBe(false);
+    expect(buildLink('google_search', 'https://hark.com/', { utm_source: 'google', utm_medium: 'paid_search', utm_campaign: 'us_signup_food_202610', utm_term: '{keyword}' }).issues).toEqual([]);
+  });
+
+  it('treats a link that still carries hark_creator_id as old format', () => {
+    const params = { utm_source: 'instagram', utm_medium: 'creator', utm_campaign: 'us_signup_creators_202610', utm_content: 'josh_jogs' };
+    const url = buildLink('creator', 'https://hark.com/', params).url;
+    expect(isCurrentFormat({ channel: 'creator', baseUrl: 'https://hark.com/', params, url })).toBe(true);
+    const withId = { ...params, hark_creator_id: 'CT0008' } as typeof params;
+    expect(isCurrentFormat({ channel: 'creator', baseUrl: 'https://hark.com/', params: withId, url: `${url}&hark_creator_id=CT0008` })).toBe(false);
   });
 
   it('rejects REPLACE_ placeholders and leftover [column] tokens', () => {

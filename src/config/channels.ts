@@ -47,7 +47,7 @@ export interface Channel {
 const CREATOR_PLATFORMS = ['instagram', 'tiktok', 'youtube'];
 const SOCIAL_PLATFORMS = ['instagram', 'tiktok', 'youtube', 'x', 'linkedin', 'facebook', 'threads', 'reddit'];
 
-const CREATOR_FIELDS: ParamKey[] = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'hark_creator_id', 'hark_use_case'];
+const CREATOR_FIELDS: ParamKey[] = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'hark_use_case'];
 const META_IDS: Params = {
   hark_ad_campaign_id: '{{campaign.id}}',
   hark_ad_group_id: '{{adset.id}}',
@@ -86,13 +86,13 @@ export const CHANNELS: Channel[] = [
     defaults: { utm_medium: 'creator' },
     sources: CREATOR_PLATFORMS,
     options: { utm_source: CREATOR_PLATFORMS },
-    required: ['hark_creator_id'],
-    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
+    required: ['utm_content'],
+    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]' },
     notes: [
       'Source is the platform the link is on, not the link tool (Linktree, Beacons…).',
-      'Content is the creator’s handle on that platform. Creator ID is their Hark key, shared across platforms.',
+      'Content is the creator’s handle on that platform, without the @. It’s how each creator is identified, so it is required.',
       'Need to tell a bio link from a post or DM for the same creator? Add it after the handle, e.g. handle_story.',
-      'Boosted or whitelisted through a Hark ad account? Use the Meta or TikTok Ads channel and keep the creator ID.',
+      'Boosted or whitelisted through a Hark ad account? Use the Meta or TikTok Ads channel with the handle in Content.',
       'Link-in-bio tools can strip or rewrite parameters. Click the live link and check the tags arrive before the creator posts.',
     ],
   },
@@ -107,8 +107,8 @@ export const CHANNELS: Channel[] = [
     defaults: { utm_medium: 'influencer_linkinbio' },
     sources: CREATOR_PLATFORMS,
     options: { utm_source: CREATOR_PLATFORMS },
-    required: ['hark_creator_id'],
-    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
+    required: ['utm_content'],
+    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]' },
     unlisted: true,
   },
   {
@@ -121,10 +121,10 @@ export const CHANNELS: Channel[] = [
     defaults: { utm_medium: 'paid_influencer' },
     sources: CREATOR_PLATFORMS,
     options: { utm_source: CREATOR_PLATFORMS },
-    required: ['hark_creator_id', 'utm_content'],
-    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
+    required: ['utm_content'],
+    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]' },
     unlisted: true,
-    notes: ['Content is the post or deliverable label. In bulk, add it after the handle: [handle]_food_demo_reel_v1.'],
+    notes: ['Content is the handle plus the post or deliverable, e.g. [handle]_food_demo_reel_v1 in bulk.'],
   },
   {
     id: 'influencer_directmessage',
@@ -136,8 +136,8 @@ export const CHANNELS: Channel[] = [
     defaults: { utm_medium: 'influencer_directmessage' },
     sources: CREATOR_PLATFORMS,
     options: { utm_source: CREATOR_PLATFORMS },
-    required: ['hark_creator_id'],
-    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]', hark_creator_id: '[creator_id]' },
+    required: ['utm_content'],
+    bulk: { label: '[name] · [platform]', utm_source: '[platform]', utm_content: '[handle]' },
     unlisted: true,
   },
 
@@ -147,12 +147,12 @@ export const CHANNELS: Channel[] = [
     label: 'Meta Ads (Facebook & Instagram)',
     group: 'Paid social',
     description: 'Facebook and Instagram paid ads, including paid creator amplification (Partnership Ads).',
-    fields: [...PAID_FIELDS, 'hark_ad_site', 'utm_id', 'hark_creator_id'],
+    fields: [...PAID_FIELDS, 'hark_ad_site', 'utm_id'],
     defaults: { utm_source: 'meta', utm_medium: 'paid_social', ...META_IDS },
     sources: ['meta'],
     paramsField: 'Ads Manager → ad → Tracking → URL parameters',
     notes: [
-      'Paid creator amplification stays meta / paid_social. Add the creator ID when known.',
+      'Paid creator amplification (Partnership Ads) stays meta / paid_social. Put the creator’s handle in Content, e.g. handle_food_demo_v1.',
       'Validate a served click: the ID macros should arrive as numbers, not as {{…}}.',
     ],
   },
@@ -161,7 +161,7 @@ export const CHANNELS: Channel[] = [
     label: 'TikTok Ads',
     group: 'Paid social',
     description: 'TikTok paid ads, including Spark Ads.',
-    fields: [...PAID_FIELDS.filter((k) => k !== 'hark_ad_id'), 'hark_ad_creative_id', 'hark_ad_site', 'utm_id', 'hark_ad_id', 'hark_creator_id'],
+    fields: [...PAID_FIELDS.filter((k) => k !== 'hark_ad_id'), 'hark_ad_creative_id', 'hark_ad_site', 'utm_id', 'hark_ad_id'],
     defaults: { utm_source: 'tiktok', utm_medium: 'paid_social', ...TIKTOK_IDS },
     sources: ['tiktok'],
     options: { hark_ad_id: ['__ADID_V2__'] },
@@ -169,7 +169,7 @@ export const CHANNELS: Channel[] = [
     notes: [
       '__CID__ is TikTok’s creative ID. On a real click, compare it to the ad ID in the TikTok export and record the join.',
       'Upgraded Smart+ ads: also set Platform ad ID to __ADID_V2__.',
-      'Spark Ads with a creator: add the creator ID.',
+      'Spark Ads: put the creator’s handle in Content, e.g. handle_food_demo_v1.',
     ],
   },
   {
@@ -453,8 +453,8 @@ export const CHANNEL_BY_ID: Record<string, Channel> = Object.fromEntries(CHANNEL
 
 export const channelOf = (id: string): Channel => CHANNEL_BY_ID[id] ?? CHANNEL_BY_ID.other;
 
-/** Channels whose links carry a creator, so the creator registry applies. */
-export const isCreatorChannel = (c: Channel): boolean => !!c.bulk?.hark_creator_id;
+/** Channels for a creator's own account, identified by the handle in utm_content. */
+export const isCreatorChannel = (c: Channel): boolean => c.group === 'Creators';
 
 /** Journeys that have no web link to build. Shown on the Conventions tab. */
 export const NO_LINK_CHANNELS = [

@@ -41,16 +41,6 @@ const SCHEMA = [
     updated_at timestamptz NOT NULL DEFAULT now()
   )`,
   `CREATE INDEX IF NOT EXISTS utm_links_created_at_idx ON utm_links (created_at DESC)`,
-  // One row per creator account (a person, duo or brand), keyed by its Hark creator ID.
-  `CREATE TABLE IF NOT EXISTS utm_creators (
-    id text PRIMARY KEY,
-    name text NOT NULL DEFAULT '',
-    handles jsonb NOT NULL DEFAULT '{}'::jsonb,
-    notes text NOT NULL DEFAULT '',
-    created_by text NOT NULL DEFAULT '',
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
-  )`,
 ];
 
 const ready = new WeakMap<Query, Promise<void>>();

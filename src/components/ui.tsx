@@ -85,7 +85,6 @@ export function Field({
   value,
   onChange,
   suggestions,
-  suggestionLabels,
   help,
   hint,
   required,
@@ -100,8 +99,6 @@ export function Field({
   value: string;
   onChange: (v: string) => void;
   suggestions?: string[];
-  /** Shown next to a suggestion in the dropdown, e.g. the creator's name next to CT0042. */
-  suggestionLabels?: Record<string, string>;
   help?: ReactNode;
   hint?: ReactNode;
   required?: boolean;
@@ -135,7 +132,7 @@ export function Field({
       {suggestions && suggestions.length > 0 && (
         <datalist id={listId}>
           {[...new Set(suggestions)].slice(0, 200).map((s) => (
-            <option key={s} value={s} label={suggestionLabels?.[s]} />
+            <option key={s} value={s} />
           ))}
         </datalist>
       )}

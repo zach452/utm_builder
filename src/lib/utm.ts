@@ -33,6 +33,14 @@ const slugCore = (raw: string): string =>
 
 export const slugify = (raw: string): string => slugCore(raw).replace(/^_+|_+$/g, '');
 
+/** slugify for values with macros in them: only the text around the macros is touched. */
+function slugifyAroundMacros(value: string): string {
+  const parts = value.split(MACRO_RE).map((part, i) => (i % 2 === 1 ? part : slugCore(part)));
+  parts[0] = parts[0].replace(/^_+/, '');
+  parts[parts.length - 1] = parts[parts.length - 1].replace(/_+$/, '');
+  return parts.join('');
+}
+
 /** Hark keys: CT42, ct-0042 and "CT 0042" all become CT0042. */
 function harkId(raw: string, prefix: string): string {
   const v = raw.toUpperCase().replace(/[\s_-]+/g, '');
@@ -46,13 +54,15 @@ export function normalizeParam(key: ParamKey, raw: string): string {
   const def = PARAMS[key];
   switch (def.kind) {
     case 'slug': {
-      const out = hasMacro(value) ? mapLiterals(value, slugCore).replace(/^_+|_+$/g, '') : slugify(value);
+      const out = hasMacro(value) ? slugifyAroundMacros(value) : slugify(value);
       return key === 'utm_source' ? (SOURCE_ALIASES[out] ?? out) : out;
     }
     case 'term':
       return mapLiterals(value, (s) => s.toLowerCase().replace(/\s+/g, ' ')).trim();
     case 'hark_id':
       return harkId(value, def.prefix!);
+    case 'site':
+      return hasMacro(value) ? slugifyAroundMacros(value) : slugify(value);
     default:
       // Referral codes and platform IDs are kept exactly: case and leading zeros matter.
       return value;
@@ -218,6 +228,9 @@ export function buildLink(channelId: string, destination: string, raw: Params): 
       message: 'Hark campaigns are named {market}_{objective}_{theme}_{yyyymm}, e.g. us_signup_food_202610.',
     });
   }
+  if (params.utm_term && !channel.fields.includes('utm_term')) {
+    issues.push({ severity: 'warning', param: 'utm_term', message: 'Term is for paid search keywords only. Leave it out here.' });
+  }
   if (channel.unlisted && channel.id !== 'other') {
     issues.push({
       severity: 'warning',
@@ -247,12 +260,13 @@ export function splitTaggedUrl(tagged: string): { base: string; params: Params }
 }
 
 /**
- * True when a saved link still matches today's schema: a known channel, only known parameters,
- * and rebuilding it gives the same URL with no errors. Links built before the schema fail this.
+ * True when a saved link still matches today's conventions: a known channel, only known
+ * parameters, and rebuilding it gives the same URL with no errors and no field warnings (off-schema
+ * source, medium, campaign name or term). Links built before the schema fail this.
  */
 export function isCurrentFormat(link: { channel: string; baseUrl: string; params: Params; url: string }): boolean {
   if (!(link.channel in CHANNEL_INDEX)) return false;
   if (Object.keys(link.params).some((k) => !(PARAM_KEYS as readonly string[]).includes(k))) return false;
   const rebuilt = buildLink(link.channel, link.baseUrl, link.params);
-  return rebuilt.ok && rebuilt.url === link.url;
+  return rebuilt.ok && rebuilt.url === link.url && !rebuilt.issues.some((i) => i.param);
 }

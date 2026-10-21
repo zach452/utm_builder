@@ -112,7 +112,7 @@ export function LibraryView({
     <div className="stack">
       {oldActive > 0 && !filters.oldOnly && (
         <Notice tone="warn">
-          {oldActive} active link{oldActive === 1 ? ' was' : 's were'} built before the Hark schema (v1.6) and don’t match it.{' '}
+          {oldActive} active link{oldActive === 1 ? ' doesn’t' : 's don’t'} match the Hark schema (v1.6), mostly ones built before it.{' '}
           <button type="button" className="btn-link" onClick={() => set({ ...emptyFilters(), oldOnly: true })}>
             Review them
           </button>
@@ -220,8 +220,8 @@ export function LibraryView({
                       <strong>{l.label || '(untitled)'}</strong>
                       <div className="param-chips">
                         {oldFormat.has(l.id) && (
-                          <Badge tone="warn" title="Built before the Hark schema v1.6. Rebuild it with Reuse, then archive this one.">
-                            Old format
+                          <Badge tone="warn" title="Doesn’t match the Hark schema v1.6. Rebuild it with Reuse, then archive this one.">
+                            Off schema
                           </Badge>
                         )}
                         <Badge tone="neutral">{channelOf(l.channel).label}</Badge>
@@ -299,12 +299,12 @@ export function LibraryView({
               className="btn"
               disabled={busy}
               onClick={() => {
-                if (confirm(`Archive all ${filtered.length} old-format links? Links already posted keep working; they just leave the active library.`)) {
+                if (confirm(`Archive all ${filtered.length} off-schema links? Links already posted keep working; they just leave the active library.`)) {
                   void act(() => library.update(filtered.map((l) => l.id), { status: 'archived' }));
                 }
               }}
             >
-              Archive all {filtered.length} old-format links
+              Archive all {filtered.length} off-schema links
             </button>
           </div>
         )}
